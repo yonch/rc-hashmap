@@ -71,6 +71,38 @@ where
     }
 }
 
+/// Iterator over immutable entries in `HandleHashMap`.
+pub struct Iter<'a, K, V, S> {
+    it: slotmap::basic::Iter<'a, DefaultKey, Entry<K, V>>,
+    pub(crate) _pd: core::marker::PhantomData<&'a (K, V, S)>,
+}
+
+impl<'a, K, V, S> Iterator for Iter<'a, K, V, S> {
+    type Item = (Handle, &'a K, &'a V);
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.it
+            .next()
+            .map(|(k, e)| (Handle::new(k), &e.key, &e.value))
+    }
+}
+
+/// Iterator over mutable entries in `HandleHashMap`.
+pub struct IterMut<'a, K, V, S> {
+    it: slotmap::basic::IterMut<'a, DefaultKey, Entry<K, V>>,
+    pub(crate) _pd: core::marker::PhantomData<&'a (K, V, S)>,
+}
+
+impl<'a, K, V, S> Iterator for IterMut<'a, K, V, S> {
+    type Item = (Handle, &'a K, &'a mut V);
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.it
+            .next()
+            .map(|(k, e)| (Handle::new(k), &e.key, &mut e.value))
+    }
+}
+
 impl<K, V, S> HandleHashMap<K, V, S>
 where
     K: Eq + Hash,
@@ -216,16 +248,30 @@ where
         self.slots.get_mut(h.key()).map(|e| &mut e.value)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (Handle, &K, &V)> {
-        self.slots
-            .iter()
-            .map(|(k, e)| (Handle::new(k), &e.key, &e.value))
+    pub(crate) fn handle_key_value<'a>(&'a self, h: Handle) -> Option<(&'a K, &'a V)> {
+        let _g = self.reentrancy.enter();
+        self.slots.get(h.key()).map(|e| (&e.key, &e.value))
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (Handle, &K, &mut V)> {
-        self.slots
-            .iter_mut()
-            .map(|(k, e)| (Handle::new(k), &e.key, &mut e.value))
+    pub(crate) fn handle_key_value_mut<'a>(&'a mut self, h: Handle) -> Option<(&'a K, &'a mut V)> {
+        let _g = self.reentrancy.enter();
+        self.slots.get_mut(h.key()).map(|e| (&e.key, &mut e.value))
+    }
+
+    pub fn iter(&self) -> Iter<'_, K, V, S> {
+        let it = self.slots.iter();
+        Iter {
+            it,
+            _pd: core::marker::PhantomData,
+        }
+    }
+
+    pub fn iter_mut(&mut self) -> IterMut<'_, K, V, S> {
+        let it = self.slots.iter_mut();
+        IterMut {
+            it,
+            _pd: core::marker::PhantomData,
+        }
     }
 }
 
