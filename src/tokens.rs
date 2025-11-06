@@ -1,9 +1,75 @@
 //! Lifetime-tied linear tokens and counting traits.
 //!
 //! Tokens are zero-sized proofs that a unit was acquired from a
-//! particular counter instance. Dropping a token panics; the only valid
+//! particular counter type. Dropping a token panics; the only valid
 //! way to dispose of it is to return it to the originating counter via
 //! `Count::put`.
+//!
+//! Goals
+//! - Provide a lifetime-driven API that forces balanced reference counting without relying on caller discipline.
+//! - Use zero-sized, linear tokens whose destruction panics unless they are returned to their originating counter.
+//! - Make ownership/liveness of map internals easy to reason about: entries keep their backing owner alive; user-facing refs are guaranteed tracked and released.
+//!
+//! Abstraction
+//! - Count: an object that mints and reclaims a unit “reference” by returning a `Token` and later accepting it back. `Count` is the sole place where increments and decrements occur.
+//! - Token: a zero-sized, non-cloneable proof that one unit was acquired. It is lifetime-bound and its `Drop` panics to catch unbalanced flows. The only valid disposal is passing it to `Count::put`.
+//!
+//! Why the type system helps
+//! - Origin binding (type-level only): `Token<'a, C>` uses two markers to separate lifetime from the counter type: `PhantomData<&'a ()>` tracks the lifetime, and `PhantomData<*const C>` brands the token to the counter type without requiring `C: 'a`.
+//! - Branding is to the counter type, not to a specific counter instance; it does not prevent returning a token to a different instance of the same counter type. Higher-level APIs are responsible for pairing tokens with their originating instance.
+//! - Linearity and balance: `Token` does not implement `Copy` or `Clone`, so it cannot be duplicated. Each `get` yields exactly one `Token` that must be consumed by exactly one `put`. Dropping a `Token` instead of returning it panics, catching unbalanced flows.
+//! - Zero cost: Tokens are ZSTs; they add no runtime footprint and no allocation. The only costs are the underlying counter operations.
+//!
+//! Unwinding and Drop panics
+//! - Panicking in `Token::drop` during another unwind aborts. Tokens are an internal mechanism, so this fail-fast behavior is acceptable for this crate.
+//!
+//! Patterns
+//! - Owned-token pattern: When a function owns the token and can consume it by value (i.e., not in a `Drop` impl), prefer moving the token directly into `Count::put` without `ManuallyDrop`.
+//!   For example, `CountedHandle` owns `Token<'_, UsizeCount>`. `CountedHashMap::put(self, handle)` consumes `handle`, moves out its token by value, and calls `entry.refcount.put(token)`.
+//! - Branch-free Drop with `ManuallyDrop`: If the token must be held inside a type that implements `Drop` and the token isn’t owned by value at drop time, store it in `core::mem::ManuallyDrop<Token<...>>` and move it out in `Drop` via `ManuallyDrop::take` to avoid implicit drops and extra branches.
+//!
+//! Generic holder pattern
+//! ```rust,ignore
+//! use core::mem::ManuallyDrop;
+//! use crate::tokens::Count;
+//!
+//! struct Holder<'a, C: Count> {
+//!     counter: &'a C,
+//!     token: ManuallyDrop<C::Token<'a>>,
+//! }
+//!
+//! impl<'a, C: Count> Holder<'a, C> {
+//!     fn new(counter: &'a C) -> Self {
+//!         Self { counter, token: ManuallyDrop::new(counter.get()) }
+//!     }
+//! }
+//!
+//! impl<'a, C: Count> Drop for Holder<'a, C> {
+//!     fn drop(&mut self) {
+//!         // SAFETY: We never let `token` be dropped implicitly; move it out exactly once.
+//!         let t = unsafe { ManuallyDrop::take(&mut self.token) };
+//!         let _ = self.counter.put(t);
+//!     }
+//! }
+//! ```
+//!
+//! Using the pieces together
+//! - Keep the owner alive while any entry exists: `RcHashMap` stores a keepalive `Token<'static, RcCount<Inner>>` per entry. The token is minted from the map’s `RcCount` on insert and returned when the last user-facing `Ref` to that entry is dropped, ensuring the backing allocation outlives the entry.
+//! - Ensure every user Ref is counted and released: `Ref` owns a `CountedHandle` which carries a `Token<'_, UsizeCount>` for the entry’s local refcount. Cloning a `Ref` mints a new token; dropping a `Ref` returns its token. When the per-entry count reaches zero, the entry is unlinked and dropped, then the keepalive token is returned to decrement the owner strong count.
+//!
+//! Implementation variants
+//! - UsizeCount: single-threaded counter using `Cell<usize>` to track outstanding user-facing references to an entry. Increment uses `wrapping_add` and aborts on wrap to 0 (matching `Rc`). Decrement asserts nonzero before subtracting. An `is_zero()` helper checks whether the current count is zero.
+//! - RcCount<T>: encapsulates raw `Rc` strong-count inc/dec behind the `Count` interface. Unsafety is internal; callers only manipulate `Token`s. Construct via `RcCount::new(&rc)` or `RcCount::from_weak(&weak)`.
+//!
+//! Notes
+//! - Observing zero: `UsizeCount::put` returns a bool indicating whether the count reached zero. `RcCount::put` returns true iff the strong count was 1 before the decrement (typically false when the map itself also holds a strong `Rc`).
+//! - Single-threaded only: `UsizeCount` is not `Sync`, and `RcCount` inherits `Rc`’s `!Send + !Sync` semantics.
+//! - Overflow behavior (same as Rc): `UsizeCount::get` performs `wrapping_add(1)`, stores it, then aborts the process if the result is 0.
+//! - Debug-only behavior: `RcCount::{get,put}` include debug assertions on liveness via `Weak::strong_count()`. These checks are compiled out in release builds.
+//!
+//! Alternatives considered
+//! - Plain `usize` counts without tokens: relies on discipline and is easy to misuse (double `put`, missing `put` on early return). Tokens significantly reduce misuse by construction, but do not enforce per-instance branding.
+//! - Storing a runtime back-pointer in the token: not implemented. Without per-instance branding, cross-instance misuse is technically possible; in this crate we rely on API structure to maintain correct pairing.
 
 use core::cell::Cell;
 use core::marker::PhantomData;
