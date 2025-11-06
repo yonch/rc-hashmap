@@ -153,15 +153,11 @@ where
     }
 
     #[inline]
-    fn check_owner<'a>(
-        &'a self,
-        map: &'a RcHashMap<K, V, S>,
-    ) -> Result<&'a Inner<K, V, S>, WrongMap> {
+    fn check_owner<'a>(&'a self, map: &'a RcHashMap<K, V, S>) -> Result<(), WrongMap> {
         // Safety: owner_ptr is created from Rc::as_ref; compare raw pointers for identity.
         let ptr = NonNull::from(map.inner.as_ref());
         if ptr == self.owner_ptr {
-            // SAFETY: self.owner_ptr originates from this Rc; lifetimes are tied to &map borrow
-            Ok(unsafe { self.owner_ptr.as_ref() })
+            Ok(())
         } else {
             Err(WrongMap)
         }
@@ -169,14 +165,14 @@ where
 
     /// Borrow the entry's key, validating owner identity.
     pub fn key<'a>(&'a self, map: &'a RcHashMap<K, V, S>) -> Result<&'a K, WrongMap> {
-        let _ = self.check_owner(map)?;
+        self.check_owner(map)?;
         let ch = self.handle.as_ref().expect("live ref must have handle");
         ch.key_ref(map.map()).ok_or(WrongMap)
     }
 
     /// Borrow the entry's value, validating owner identity.
     pub fn value<'a>(&'a self, map: &'a RcHashMap<K, V, S>) -> Result<&'a V, WrongMap> {
-        let _ = self.check_owner(map)?;
+        self.check_owner(map)?;
         let ch = self.handle.as_ref().expect("live ref must have handle");
         ch.value_ref(map.map())
             .map(|rcv| &rcv.value)
@@ -184,15 +180,12 @@ where
     }
 
     /// Mutably borrow the entry's value, validating owner identity.
-    pub fn value_mut<'a>(
-        &'a self,
-        map: &'a mut RcHashMap<K, V, S>,
-    ) -> Result<&'a mut V, WrongMap> {
+    pub fn value_mut<'a>(&'a self, map: &'a mut RcHashMap<K, V, S>) -> Result<&'a mut V, WrongMap> {
         if NonNull::from(map.inner.as_ref()) != self.owner_ptr {
             return Err(WrongMap);
         }
         // SAFETY: owner validated and we have &mut map, so exclusive access for 'a
-        let _ = self.check_owner(map)?; // ensure owner match
+        self.check_owner(map)?; // ensure owner match
         let ch = self.handle.as_ref().expect("live ref must have handle");
         ch.value_mut(map.map_mut())
             .map(|rcv| &mut rcv.value)
