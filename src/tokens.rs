@@ -160,6 +160,8 @@ mod tests {
     use proptest::prelude::*;
 
     #[test]
+    /// Invariant: Dropping a token without returning it via `Count::put`
+    /// panics (fail-fast). This ensures linear token flow is enforced.
     fn token_drop_panics() {
         let c = UsizeCount::new(0);
         let t = c.get();
@@ -168,6 +170,8 @@ mod tests {
     }
 
     #[test]
+    /// Invariant: `UsizeCount` reflects the exact number of outstanding
+    /// tokens, and `put` returns true when the count reaches zero.
     fn usizecount_balance_and_zero() {
         let c = UsizeCount::new(0);
         let t1 = c.get();
@@ -179,6 +183,10 @@ mod tests {
     }
 
     #[test]
+    /// Invariant: `RcCount` increments the underlying `Rc` strong count on
+    /// `get` and decrements it on `put`. For a live `Rc`, `put` never
+    /// indicates the count was one (because the map holds another strong ref
+    /// in typical usage).
     fn rccount_increments_and_put_flag() {
         let rc = Rc::new(123);
         let weak = Rc::downgrade(&rc);
@@ -191,6 +199,9 @@ mod tests {
         assert_eq!(weak.strong_count(), before);
     }
 
+    // Property: For arbitrary get/put sequences, `UsizeCount`'s zero/non-zero
+    // state matches whether there are tokens outstanding, and `put`'s return
+    // value signals transition-to-zero exactly when the last token is returned.
     proptest! {
         #[test]
         fn prop_usizecount_get_put_balance(ops in proptest::collection::vec(0u8..=1, 0..200)) {
@@ -219,6 +230,8 @@ mod tests {
             assert!(c.is_zero());
         }
 
+        // Property: Two `UsizeCount` instances are independent; operations on
+        // one must not affect the other's zero/non-zero state or put results.
         #[test]
         fn prop_two_usizecounts_independent(ops in proptest::collection::vec((0u8..=1, 0u8..=1), 0..200)) {
             let a = UsizeCount::new(0);
@@ -253,6 +266,10 @@ mod tests {
             assert!(b.is_zero());
         }
 
+        // Property: `RcCount` round-trip increments and decrements the strong
+        // count by the exact number of outstanding tokens. Returning tokens
+        // never reports `was_one` here because another owner (the map) holds
+        // a strong reference; the weak strong_count tracks changes.
         #[test]
         fn prop_rccount_roundtrip(n in 0usize..100) {
             let rc = Rc::new(());

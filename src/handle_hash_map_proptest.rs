@@ -64,7 +64,13 @@ fn arb_scenario() -> impl Strategy<Value = (Vec<String>, Vec<OpI>)> {
     })
 }
 
-// State machine harness over HandleHashMap against std::collections::HashMap model.
+// Property: State-machine equivalence against std::collections::HashMap.
+// Invariants exercised across random operation sequences:
+// - Duplicate keys are rejected; on success a unique stable Handle is returned.
+// - `find`/`contains_key` parity and handle stability for live entries.
+// - `remove(handle)` returns the owned `(K,V)` matching the model and invalidates the handle.
+// - `iter` yields each live entry exactly once; key set equals the model’s key set.
+// - Stale handles never resolve; `len`/`is_empty` parity with the model after each op.
 proptest! {
     #![proptest_config(ProptestConfig { cases: 64, .. ProptestConfig::default() })]
     #[test]
@@ -195,6 +201,9 @@ impl Hasher for ConstHasher {
     }
 }
 
+// Property: Same state-machine invariants as above, under worst-case
+// collision behavior (constant hasher). This stresses equality probing
+// and collision resolution in the index.
 proptest! {
     #![proptest_config(ProptestConfig { cases: 64, .. ProptestConfig::default() })]
     #[test]

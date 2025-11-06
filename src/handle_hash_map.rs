@@ -512,6 +512,8 @@ mod tests {
         assert!(res.is_err(), "expected reentrancy to panic in debug builds");
     }
 
+    /// Invariant: `insert_with` only runs the default constructor on
+    /// successful insert; on duplicate it does not run and returns an error.
     #[test]
     fn insert_with_is_lazy_and_deduplicates() {
         let mut m: HandleHashMap<String, String> = HandleHashMap::new();
@@ -540,6 +542,8 @@ mod tests {
         assert_eq!(h.value_ref(&m), Some(&"v".to_string()));
     }
 
+    /// Invariant: Values inserted via `insert` and `insert_with` are
+    /// equivalent for the same key/value; duplicates are rejected by both.
     #[test]
     fn insert_with_value_equivalence() {
         let mut m1: HandleHashMap<&'static str, i32> = HandleHashMap::new();
