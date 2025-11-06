@@ -2,7 +2,7 @@ use crate::tokens::{Count, RcCount, Token};
 // Keepalive handled via direct Rc strong-count inc/dec per entry.
 use crate::counted_hash_map::{CountedHandle, CountedHashMap, PutResult};
 use crate::handle_hash_map::InsertError;
-use core::cell::RefCell;
+use core::cell::UnsafeCell;
 use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
 use std::ptr::NonNull;
@@ -17,7 +17,7 @@ struct RcVal<K, V, S> {
 }
 
 struct Inner<K, V, S> {
-    map: RefCell<CountedHashMap<K, RcVal<K, V, S>, S>>, // single-threaded interior mutability
+    map: UnsafeCell<CountedHashMap<K, RcVal<K, V, S>, S>>, // interior mutability via UnsafeCell
     keepalive: RcCount<Inner<K, V, S>>,
 }
 
@@ -33,7 +33,7 @@ where
     pub fn new() -> Self {
         Self {
             inner: Rc::new_cyclic(|weak| Inner {
-                map: RefCell::new(CountedHashMap::new()),
+                map: UnsafeCell::new(CountedHashMap::new()),
                 keepalive: RcCount::from_weak(weak),
             }),
         }
@@ -46,20 +46,37 @@ where
     V: 'static,
     S: core::hash::BuildHasher + Clone + Default + 'static,
 {
+    // Internal helpers to access the inner map via UnsafeCell in one place.
+    fn map(&self) -> &CountedHashMap<K, RcVal<K, V, S>, S> {
+        unsafe { &*self.inner.map.get() }
+    }
+    fn map_mut(&mut self) -> &mut CountedHashMap<K, RcVal<K, V, S>, S> {
+        unsafe { &mut *self.inner.map.get() }
+    }
+    fn map_and_rccount_mut(
+        &mut self,
+    ) -> (
+        &mut CountedHashMap<K, RcVal<K, V, S>, S>,
+        &RcCount<Inner<K, V, S>>,
+    ) {
+        let m = unsafe { &mut *self.inner.map.get() };
+        let rc = &self.inner.keepalive;
+        (m, rc)
+    }
     pub fn with_hasher(hasher: S) -> Self {
         Self {
             inner: Rc::new_cyclic(|weak| Inner {
-                map: RefCell::new(CountedHashMap::with_hasher(hasher)),
+                map: UnsafeCell::new(CountedHashMap::with_hasher(hasher)),
                 keepalive: RcCount::from_weak(weak),
             }),
         }
     }
 
     pub fn len(&self) -> usize {
-        self.inner.map.borrow().len()
+        self.map().len()
     }
     pub fn is_empty(&self) -> bool {
-        self.inner.map.borrow().is_empty()
+        self.map().is_empty()
     }
 
     pub fn contains_key<Q>(&self, q: &Q) -> bool
@@ -67,34 +84,45 @@ where
         K: core::borrow::Borrow<Q>,
         Q: ?Sized + core::hash::Hash + Eq,
     {
-        self.inner.map.borrow().contains_key(q)
+        self.map().contains_key(q)
     }
 
     pub fn insert(&mut self, key: K, value: V) -> Result<Ref<K, V, S>, InsertError> {
-        let out = {
-            let mut map = self.inner.map.borrow_mut();
-            let res = map.insert_with(key, || RcVal {
-                value,
-                keepalive_token: self.inner.keepalive.get(),
-            });
-            match res {
-                Ok(ch) => Ok(Ref::new(NonNull::from(self.inner.as_ref()), ch)),
-                Err(e) => Err(e),
-            }
-        };
-        out
+        let (map, keepalive) = self.map_and_rccount_mut();
+        let res = map.insert_with(key, || RcVal {
+            value,
+            keepalive_token: keepalive.get(),
+        });
+        match res {
+            Ok(ch) => Ok(Ref::new(NonNull::from(self.inner.as_ref()), ch)),
+            Err(e) => Err(e),
+        }
     }
 
     pub fn get(&self, key: &K) -> Option<Ref<K, V, S>> {
-        let out = {
-            let map = self.inner.map.borrow();
-            let x = match map.find(key) {
-                Some(ch) => Some(Ref::new(NonNull::from(self.inner.as_ref()), ch)),
-                None => None,
-            };
-            x
-        };
-        out
+        self.find(key)
+    }
+
+    pub fn find<Q>(&self, q: &Q) -> Option<Ref<K, V, S>>
+    where
+        K: core::borrow::Borrow<Q>,
+        Q: ?Sized + core::hash::Hash + Eq,
+    {
+        self.map()
+            .find(q)
+            .map(|ch| Ref::new(NonNull::from(self.inner.as_ref()), ch))
+    }
+
+    pub fn iter(&self) -> Iter<'_, K, V, S> {
+        let owner_ptr = NonNull::from(self.inner.as_ref());
+        let inner = self.map().iter_raw();
+        Iter { owner_ptr, inner }
+    }
+
+    pub fn iter_mut(&mut self) -> IterMut<'_, K, V, S> {
+        let owner_ptr = NonNull::from(self.inner.as_ref());
+        let inner = self.map_mut().iter_mut_raw();
+        IterMut { owner_ptr, inner }
     }
 }
 
@@ -111,6 +139,10 @@ where
     _nosend: PhantomData<*mut ()>,
 }
 
+/// Owner-mismatch error for Ref accessors.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct WrongMap;
+
 impl<K, V, S> Ref<K, V, S>
 where
     K: Eq + core::hash::Hash,
@@ -124,19 +156,58 @@ where
         }
     }
 
-    pub fn value(&self) -> Option<std::cell::Ref<'_, V>> {
-        let inner = unsafe { self.owner_ptr.as_ref() };
-        let borrow = inner.map.borrow();
-        let ch = self.handle.as_ref()?;
-        if ch.value_ref(&borrow).is_some() {
-            Some(std::cell::Ref::map(borrow, |m| {
-                &ch.value_ref(m)
-                    .expect("entry must exist while Ref is live")
-                    .value
-            }))
+    #[inline]
+    fn check_owner<'a>(
+        &'a self,
+        map: &'a RcHashMap<K, V, S>,
+    ) -> Result<&'a Inner<K, V, S>, WrongMap> {
+        // Safety: owner_ptr is created from Rc::as_ref; compare raw pointers for identity.
+        let ptr = NonNull::from(map.inner.as_ref());
+        if ptr == self.owner_ptr {
+            // SAFETY: self.owner_ptr originates from this Rc; lifetimes are tied to &map borrow
+            Ok(unsafe { self.owner_ptr.as_ref() })
         } else {
-            None
+            Err(WrongMap)
         }
+    }
+
+    /// Borrow the entry's key, validating owner identity.
+    pub fn key_in<'a>(&'a self, map: &'a RcHashMap<K, V, S>) -> Result<&'a K, WrongMap> {
+        let _ = self.check_owner(map)?;
+        let ch = self.handle.as_ref().expect("live ref must have handle");
+        ch.key_ref(map.map()).ok_or(WrongMap)
+    }
+
+    /// Borrow the entry's value, validating owner identity.
+    pub fn value_in<'a>(&'a self, map: &'a RcHashMap<K, V, S>) -> Result<&'a V, WrongMap> {
+        let _ = self.check_owner(map)?;
+        let ch = self.handle.as_ref().expect("live ref must have handle");
+        ch.value_ref(map.map())
+            .map(|rcv| &rcv.value)
+            .ok_or(WrongMap)
+    }
+
+    /// Mutably borrow the entry's value, validating owner identity.
+    pub fn value_mut_in<'a>(
+        &'a self,
+        map: &'a mut RcHashMap<K, V, S>,
+    ) -> Result<&'a mut V, WrongMap> {
+        if NonNull::from(map.inner.as_ref()) != self.owner_ptr {
+            return Err(WrongMap);
+        }
+        // SAFETY: owner validated and we have &mut map, so exclusive access for 'a
+        let _ = self.check_owner(map)?; // ensure owner match
+        let ch = self.handle.as_ref().expect("live ref must have handle");
+        ch.value_mut(map.map_mut())
+            .map(|rcv| &mut rcv.value)
+            .ok_or(WrongMap)
+    }
+
+    pub fn value(&self) -> Option<&V> {
+        let inner = unsafe { self.owner_ptr.as_ref() };
+        let ch = self.handle.as_ref()?;
+        ch.value_ref(unsafe { &*inner.map.get() })
+            .map(|rcv| &rcv.value)
     }
 }
 
@@ -149,8 +220,8 @@ where
     fn clone(&self) -> Self {
         // Increment per-entry count via counted handle API.
         let inner = unsafe { self.owner_ptr.as_ref() };
-        let map = inner.map.borrow();
-        let ch2 = map.get(self.handle.as_ref().expect("live ref must have handle"));
+        let ch2 = unsafe { &*inner.map.get() }
+            .get(self.handle.as_ref().expect("live ref must have handle"));
         Ref::new(self.owner_ptr, ch2)
     }
 }
@@ -162,9 +233,9 @@ where
     S: core::hash::BuildHasher + Clone + Default + 'static,
 {
     fn drop(&mut self) {
-        let inner = unsafe { self.owner_ptr.as_ref() };
+        let inner = unsafe { &mut *(self.owner_ptr.as_ptr()) };
         if let Some(ch) = self.handle.take() {
-            let res = inner.map.borrow_mut().put(ch);
+            let res = unsafe { &mut *inner.map.get() }.put(ch);
             match res {
                 PutResult::Live => {}
                 PutResult::Removed { key, value } => {
@@ -211,5 +282,87 @@ where
         if let Some(h) = &self.handle {
             h.handle.hash(state);
         }
+    }
+}
+/// Placeholder for future mutable iterator item (see design docs).
+pub struct ItemMut<'a, K, V, S = std::collections::hash_map::RandomState>
+where
+    K: Eq + core::hash::Hash + 'static,
+    V: 'static,
+    S: core::hash::BuildHasher + Clone + Default + 'static,
+{
+    r: Ref<K, V, S>,
+    k: &'a K,
+    v: &'a mut V,
+}
+impl<'a, K, V, S> ItemMut<'a, K, V, S>
+where
+    K: Eq + core::hash::Hash + 'static,
+    V: 'static,
+    S: core::hash::BuildHasher + Clone + Default + 'static,
+{
+    pub fn r#ref(&self) -> &Ref<K, V, S> {
+        &self.r
+    }
+    pub fn key(&self) -> &K {
+        self.k
+    }
+    pub fn value_mut(&mut self) -> &mut V {
+        self.v
+    }
+}
+
+/// Immutable iterator for RcHashMap yielding `Ref`.
+pub struct Iter<'a, K, V, S = std::collections::hash_map::RandomState>
+where
+    K: Eq + core::hash::Hash + 'static,
+    V: 'static,
+    S: core::hash::BuildHasher + Clone + Default + 'static,
+{
+    owner_ptr: NonNull<Inner<K, V, S>>,
+    inner: crate::counted_hash_map::Iter<'a, K, RcVal<K, V, S>, S>,
+}
+
+impl<'a, K, V, S> Iterator for Iter<'a, K, V, S>
+where
+    K: Eq + core::hash::Hash + 'static,
+    V: 'static,
+    S: core::hash::BuildHasher + Clone + Default + 'static,
+{
+    type Item = Ref<K, V, S>;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner
+            .next()
+            .map(|(ch, _k, _rv)| Ref::new(self.owner_ptr, ch))
+    }
+}
+
+/// Mutable iterator for RcHashMap yielding ItemMut.
+pub struct IterMut<'a, K, V, S = std::collections::hash_map::RandomState>
+where
+    K: Eq + core::hash::Hash + 'static,
+    V: 'static,
+    S: core::hash::BuildHasher + Clone + Default + 'static,
+{
+    owner_ptr: NonNull<Inner<K, V, S>>,
+    inner: crate::counted_hash_map::IterMut<'a, K, RcVal<K, V, S>, S>,
+}
+
+impl<'a, K, V, S> Iterator for IterMut<'a, K, V, S>
+where
+    K: Eq + core::hash::Hash + 'static,
+    V: 'static,
+    S: core::hash::BuildHasher + Clone + Default + 'static,
+{
+    type Item = ItemMut<'a, K, V, S>;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|(ch, k, rv)| {
+            let r = Ref::new(self.owner_ptr, ch);
+            ItemMut {
+                r,
+                k,
+                v: &mut rv.value,
+            }
+        })
     }
 }

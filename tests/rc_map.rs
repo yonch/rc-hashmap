@@ -57,3 +57,58 @@ fn ref_equality_and_hash() {
     let r2 = m.insert("b".to_string(), 20).unwrap();
     assert!(r1 != r2);
 }
+
+#[test]
+fn wrong_map_accessors_reject() {
+    use rc_hashmap::Ref as _; // silence unused import warnings if traits added later
+
+    let mut m1 = RcHashMap::new();
+    let mut m2 = RcHashMap::new();
+    let r = m1.insert("a".to_string(), 11).unwrap();
+
+    // Owner-checked accessors
+    assert!(r.value_in(&m1).is_ok());
+    assert!(r.key_in(&m1).is_ok());
+    assert!(r.value_mut_in(&mut m1).is_ok());
+
+    // Wrong map should be rejected
+    assert!(r.value_in(&m2).is_err());
+    assert!(r.key_in(&m2).is_err());
+}
+
+#[test]
+fn iter_returns_refs() {
+    let mut m = RcHashMap::new();
+    let _ = m.insert("k1".to_string(), 1).unwrap();
+    let _ = m.insert("k2".to_string(), 2).unwrap();
+    let _ = m.insert("k3".to_string(), 3).unwrap();
+
+    let count = m.iter().count();
+    assert_eq!(count, m.len());
+
+    // Values are reachable via returned Refs
+    for r in m.iter() {
+        let v = r.value().expect("value borrow");
+        assert!(*v == 1 || *v == 2 || *v == 3);
+    }
+}
+
+#[test]
+fn iter_mut_updates_and_allows_cloning_ref() {
+    let mut m = RcHashMap::new();
+    let r1 = m.insert("k1".to_string(), 1).unwrap();
+    let r2 = m.insert("k2".to_string(), 2).unwrap();
+
+    // Mutate values in place and keep clones alive until after iteration
+    let mut held = Vec::new();
+    for mut it in m.iter_mut() {
+        *it.value_mut() += 10;
+        // Clone a Ref from the item to keep the entry alive beyond this iteration
+        held.push(it.r#ref().clone());
+    }
+    assert_eq!(m.len(), 2);
+
+    // Verify values updated using existing Refs to keep tokens alive
+    assert_eq!(*r1.value_in(&m).unwrap(), 11);
+    assert_eq!(*r2.value_in(&m).unwrap(), 12);
+}
