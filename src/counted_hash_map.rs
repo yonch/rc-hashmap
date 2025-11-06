@@ -73,6 +73,44 @@ where
     }
 }
 
+/// Iterator over immutable entries yielding a CountedHandle and refs.
+pub(crate) struct Iter<'a, K, V, S> {
+    pub(crate) it: crate::handle_hash_map::Iter<'a, K, Counted<V>, S>,
+    pub(crate) _pd: core::marker::PhantomData<&'a (K, V, S)>,
+}
+
+impl<'a, K, V, S> Iterator for Iter<'a, K, V, S> {
+    type Item = (CountedHandle<'static>, &'a K, &'a V);
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.it.next().map(|(h, k, c)| {
+            let ch = CountedHandle {
+                handle: h,
+                token: c.refcount.get(),
+            };
+            (ch, k, &c.value)
+        })
+    }
+}
+
+/// Iterator over mutable entries yielding a CountedHandle and refs.
+pub(crate) struct IterMut<'a, K, V, S> {
+    pub(crate) it: crate::handle_hash_map::IterMut<'a, K, Counted<V>, S>,
+    pub(crate) _pd: core::marker::PhantomData<&'a (K, V, S)>,
+}
+
+impl<'a, K, V, S> Iterator for IterMut<'a, K, V, S> {
+    type Item = (CountedHandle<'static>, &'a K, &'a mut V);
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.it.next().map(|(h, k, c)| {
+            let token = c.refcount.get();
+            let ch = CountedHandle { handle: h, token };
+            (ch, k, &mut c.value)
+        })
+    }
+}
+
 impl<K, V, S> CountedHashMap<K, V, S>
 where
     K: Eq + core::hash::Hash,
@@ -194,26 +232,20 @@ where
         self.inner.iter_mut().map(|(h, k, c)| (h, k, &mut c.value))
     }
 
-    pub(crate) fn iter_raw(&self) -> impl Iterator<Item = (CountedHandle<'static>, &K, &V)> {
-        self.inner.iter().map(|(h, k, c)| {
-            let ch = CountedHandle {
-                handle: h,
-                token: c.refcount.get(),
-            };
-            (ch, k, &c.value)
-        })
+    pub(crate) fn iter_raw(&self) -> Iter<'_, K, V, S> {
+        let it = self.inner.iter();
+        Iter {
+            it,
+            _pd: core::marker::PhantomData,
+        }
     }
 
-    pub(crate) fn iter_mut_raw(
-        &mut self,
-    ) -> impl Iterator<Item = (CountedHandle<'static>, &K, &mut V)> {
-        self.inner.iter_mut().map(|(h, k, c)| {
-            let ch = CountedHandle {
-                handle: h,
-                token: c.refcount.get(),
-            };
-            (ch, k, &mut c.value)
-        })
+    pub(crate) fn iter_mut_raw(&mut self) -> IterMut<'_, K, V, S> {
+        let it = self.inner.iter_mut();
+        IterMut {
+            it,
+            _pd: core::marker::PhantomData,
+        }
     }
 }
 
