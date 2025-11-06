@@ -248,16 +248,6 @@ where
         self.slots.get_mut(h.key()).map(|e| &mut e.value)
     }
 
-    pub(crate) fn handle_key_value<'a>(&'a self, h: Handle) -> Option<(&'a K, &'a V)> {
-        let _g = self.reentrancy.enter();
-        self.slots.get(h.key()).map(|e| (&e.key, &e.value))
-    }
-
-    pub(crate) fn handle_key_value_mut<'a>(&'a mut self, h: Handle) -> Option<(&'a K, &'a mut V)> {
-        let _g = self.reentrancy.enter();
-        self.slots.get_mut(h.key()).map(|e| (&e.key, &mut e.value))
-    }
-
     pub fn iter(&self) -> Iter<'_, K, V, S> {
         let it = self.slots.iter();
         Iter {
