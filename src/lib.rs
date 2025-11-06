@@ -72,7 +72,7 @@ mod handle_hash_map;
 mod handle_hash_map_proptest;
 mod rc_hash_map;
 mod reentrancy;
-mod tokens;
+pub mod tokens;
 
 // Public surface
 pub use handle_hash_map::InsertError;

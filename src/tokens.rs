@@ -29,8 +29,8 @@
 //! - Branch-free Drop with `ManuallyDrop`: If the token must be held inside a type that implements `Drop` and the token isn’t owned by value at drop time, store it in `core::mem::ManuallyDrop<Token<...>>` and move it out in `Drop` via `ManuallyDrop::take` to avoid implicit drops and extra branches.
 //!
 //! Owned + destructuring example
-//! ```rust,ignore
-//! use crate::tokens::{Count, Token, UsizeCount};
+//! ```rust
+//! use rc_hashmap::tokens::{Count, Token, UsizeCount};
 //!
 //! // A handle-like wrapper that owns a linear token.
 //! struct MyHandle<'a> {
@@ -45,23 +45,24 @@
 //! }
 //! ```
 //!
-//! Generic holder pattern
-//! ```rust,ignore
+//! Holder pattern with ManuallyDrop
+//! ```rust
 //! use core::mem::ManuallyDrop;
-//! use crate::tokens::Count;
+//! use rc_hashmap::tokens::{Count, Token, UsizeCount};
 //!
-//! struct Holder<'a, C: Count> {
-//!     counter: &'a C,
-//!     token: ManuallyDrop<C::Token<'a>>,
+//! struct Holder<'a> {
+//!     counter: &'a UsizeCount,
+//!     token: ManuallyDrop<Token<'a, UsizeCount>>,
 //! }
 //!
-//! impl<'a, C: Count> Holder<'a, C> {
-//!     fn new(counter: &'a C) -> Self {
+//! impl<'a> Holder<'a> {
+//!     fn new(counter: &'a UsizeCount) -> Self {
+//!         // `get()` returns a `'static` token which coerces to `'a` for `Token`.
 //!         Self { counter, token: ManuallyDrop::new(counter.get()) }
 //!     }
 //! }
 //!
-//! impl<'a, C: Count> Drop for Holder<'a, C> {
+//! impl<'a> Drop for Holder<'a> {
 //!     fn drop(&mut self) {
 //!         // SAFETY: We never let `token` be dropped implicitly; move it out exactly once.
 //!         let t = unsafe { ManuallyDrop::take(&mut self.token) };
