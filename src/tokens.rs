@@ -28,6 +28,23 @@
 //!   For example, `CountedHandle` owns `Token<'_, UsizeCount>`. `CountedHashMap::put(self, handle)` consumes `handle`, moves out its token by value, and calls `entry.refcount.put(token)`.
 //! - Branch-free Drop with `ManuallyDrop`: If the token must be held inside a type that implements `Drop` and the token isn’t owned by value at drop time, store it in `core::mem::ManuallyDrop<Token<...>>` and move it out in `Drop` via `ManuallyDrop::take` to avoid implicit drops and extra branches.
 //!
+//! Owned + destructuring example
+//! ```rust,ignore
+//! use crate::tokens::{Count, Token, UsizeCount};
+//!
+//! // A handle-like wrapper that owns a linear token.
+//! struct MyHandle<'a> {
+//!     token: Token<'a, UsizeCount>,
+//!     counter: &'a UsizeCount,
+//! }
+//!
+//! // By taking `MyHandle` by value, we own its fields. Destructure to move
+//! // the token out by value and return it directly — no Drop, no ManuallyDrop.
+//! fn release(MyHandle { token, counter }: MyHandle<'_>) -> bool {
+//!     counter.put(token)
+//! }
+//! ```
+//!
 //! Generic holder pattern
 //! ```rust,ignore
 //! use core::mem::ManuallyDrop;
