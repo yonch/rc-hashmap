@@ -38,7 +38,7 @@ impl DebugReentrancy {
                 "reentrancy detected: nested entry into data structure"
             );
             self.depth.set(d + 1);
-            return ReentrancyGuard { owner: self };
+            ReentrancyGuard { owner: self }
         }
 
         #[cfg(not(debug_assertions))]

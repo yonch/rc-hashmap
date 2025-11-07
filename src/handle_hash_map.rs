@@ -2,7 +2,7 @@
 
 use crate::reentrancy::DebugReentrancy;
 use core::borrow::Borrow;
-use core::hash::{BuildHasher, Hash, Hasher};
+use core::hash::{BuildHasher, Hash};
 use hashbrown::HashTable;
 use slotmap::{DefaultKey, SlotMap};
 use std::collections::hash_map::RandomState;
@@ -71,6 +71,15 @@ where
     }
 }
 
+impl<K, V> Default for HandleHashMap<K, V>
+where
+    K: Eq + Hash,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Iterator over immutable entries in `HandleHashMap`.
 pub struct Iter<'a, K, V, S> {
     it: slotmap::basic::Iter<'a, DefaultKey, Entry<K, V>>,
@@ -121,9 +130,7 @@ where
     where
         Q: ?Sized + Hash,
     {
-        let mut h = self.hasher.build_hasher();
-        q.hash(&mut h);
-        h.finish()
+        self.hasher.hash_one(q)
     }
 
     pub fn len(&self) -> usize {
@@ -233,17 +240,17 @@ where
         self.slots.remove(k).map(|e| (e.key, e.value))
     }
 
-    pub(crate) fn handle_key<'a>(&'a self, h: Handle) -> Option<&'a K> {
+    pub(crate) fn handle_key(&self, h: Handle) -> Option<&K> {
         let _g = self.reentrancy.enter();
         self.slots.get(h.key()).map(|e| &e.key)
     }
 
-    pub(crate) fn handle_value<'a>(&'a self, h: Handle) -> Option<&'a V> {
+    pub(crate) fn handle_value(&self, h: Handle) -> Option<&V> {
         let _g = self.reentrancy.enter();
         self.slots.get(h.key()).map(|e| &e.value)
     }
 
-    pub(crate) fn handle_value_mut<'a>(&'a mut self, h: Handle) -> Option<&'a mut V> {
+    pub(crate) fn handle_value_mut(&mut self, h: Handle) -> Option<&mut V> {
         let _g = self.reentrancy.enter();
         self.slots.get_mut(h.key()).map(|e| &mut e.value)
     }
@@ -270,6 +277,7 @@ mod tests {
     use super::*;
     use std::cell::Cell;
     use std::collections::BTreeSet;
+    use std::hash::Hasher;
     use std::rc::Rc;
 
     /// Invariant: Duplicate keys are rejected and the map remains unchanged.

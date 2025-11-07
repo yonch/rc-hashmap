@@ -16,7 +16,7 @@ fn key(n: u64) -> String {
 fn bench_insert(c: &mut Criterion) {
     c.bench_function("rc_hashmap_insert_10k", |b| {
         b.iter_batched(
-            || RcHashMap::<String, u64>::new(),
+            RcHashMap::<String, u64>::new,
             |mut m| {
                 // Hold refs to avoid immediate removals during insert loop.
                 let mut refs = Vec::with_capacity(10_000);
@@ -77,6 +77,58 @@ fn bench_clone_drop_refs(c: &mut Criterion) {
     });
 }
 
+fn bench_ref_cycle_increment(c: &mut Criterion) {
+    c.bench_function("rc_hashmap_ref_cycle_increment", |b| {
+        b.iter_batched(
+            || {
+                let mut m: RcHashMap<String, u64> = RcHashMap::new();
+                let refs: Vec<_> = lcg(123)
+                    .take(1_000)
+                    .enumerate()
+                    .map(|(i, x)| m.insert(key(x), i as u64).unwrap())
+                    .collect();
+                (m, refs)
+            },
+            |(mut m, refs)| {
+                let mut idx = 0usize;
+                for _ in 0..10_000 {
+                    let r = &refs[idx];
+                    let v = r.value_mut(&mut m).unwrap();
+                    *v = v.wrapping_add(1);
+                    idx += 1;
+                    if idx == refs.len() {
+                        idx = 0;
+                    }
+                }
+                black_box(m)
+            },
+            BatchSize::SmallInput,
+        )
+    });
+}
+
+fn bench_iter_mut_increment(c: &mut Criterion) {
+    c.bench_function("rc_hashmap_iter_mut_increment", |b| {
+        b.iter_batched(
+            || {
+                let mut m: RcHashMap<String, u64> = RcHashMap::new();
+                for (i, x) in lcg(999).take(100).enumerate() {
+                    let _ = m.insert(key(x), i as u64).unwrap();
+                }
+                m
+            },
+            |mut m| {
+                for mut item in m.iter_mut() {
+                    let v = item.value_mut();
+                    *v = v.wrapping_add(1);
+                }
+                black_box(m)
+            },
+            BatchSize::SmallInput,
+        )
+    });
+}
+
 fn bench_config() -> Criterion {
     Criterion::default()
         .sample_size(50)
@@ -87,6 +139,6 @@ fn bench_config() -> Criterion {
 criterion_group! {
     name = benches;
     config = bench_config();
-    targets = bench_insert, bench_get_hit, bench_get_miss, bench_clone_drop_refs
+    targets = bench_insert, bench_get_hit, bench_get_miss, bench_clone_drop_refs, bench_ref_cycle_increment, bench_iter_mut_increment
 }
 criterion_main!(benches);

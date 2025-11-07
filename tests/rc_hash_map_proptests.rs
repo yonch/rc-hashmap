@@ -83,7 +83,9 @@ struct VNode {
     children: Vec<rc_hashmap::Ref<String, VNode>>, // DAG edges: i -> j
 }
 
-fn key(i: usize) -> String { format!("k{}", i) }
+fn key(i: usize) -> String {
+    format!("k{}", i)
+}
 
 proptest! {
     #[test]
@@ -97,7 +99,7 @@ proptest! {
         // Adjacency: edges i -> j are stored in values and keep j alive while i is alive.
         let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
 
-        fn closure(n: usize, roots: &[bool], adj: &Vec<Vec<usize>>) -> Vec<bool> {
+        fn closure(n: usize, roots: &[bool], adj: &[Vec<usize>]) -> Vec<bool> {
             let mut alive = roots.to_vec();
             let mut changed = true;
             while changed {

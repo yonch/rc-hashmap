@@ -297,7 +297,7 @@ fn drop_refs_during_iter_mut_and_update() {
 
     for mut item in m.iter_mut() {
         *item.value_mut() += 1;
-        if item.key() == &"x" { drop(r2.clone()); } else { drop(r1.clone()); }
+        if item.key() == "x" { drop(r2.clone()); } else { drop(r1.clone()); }
     }
 
     if let Some(rx) = m.find(&"x".to_string()) {

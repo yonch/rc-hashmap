@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
-use rc_hashmap::HandleHashMap;
+use rc_hashmap::handle_hash_map::HandleHashMap;
 use std::time::Duration; // exposed when feature bench_internal is enabled
 
 fn lcg(mut s: u64) -> impl Iterator<Item = u64> {
@@ -16,7 +16,7 @@ fn key(n: u64) -> String {
 fn bench_insert(c: &mut Criterion) {
     c.bench_function("handle_hashmap_insert_10k", |b| {
         b.iter_batched(
-            || HandleHashMap::<String, u64>::new(),
+            HandleHashMap::<String, u64>::new,
             |mut m| {
                 for (i, x) in lcg(1).take(10_000).enumerate() {
                     let _ = m.insert(key(x), i as u64).unwrap();

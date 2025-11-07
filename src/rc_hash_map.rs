@@ -5,8 +5,8 @@ use crate::handle_hash_map::InsertError;
 use core::cell::UnsafeCell;
 use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
-use std::ptr::NonNull;
 use core::mem::ManuallyDrop;
+use std::ptr::NonNull;
 use std::rc::Rc;
 
 // Stored value wrapper that holds a keepalive token from `Inner`'s RcCount
@@ -41,6 +41,16 @@ where
     }
 }
 
+impl<K, V> Default for RcHashMap<K, V>
+where
+    K: Eq + core::hash::Hash + 'static,
+    V: 'static,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<K, V, S> RcHashMap<K, V, S>
 where
     K: Eq + core::hash::Hash + 'static,
@@ -54,6 +64,7 @@ where
     fn map_mut(&mut self) -> &mut CountedHashMap<K, RcVal<K, V, S>, S> {
         unsafe { &mut *self.inner.map.get() }
     }
+    #[allow(clippy::type_complexity)]
     fn map_and_rccount_mut(
         &mut self,
     ) -> (
@@ -173,7 +184,8 @@ where
     /// Borrow the entry's value, validating owner identity.
     pub fn value<'a>(&'a self, map: &'a RcHashMap<K, V, S>) -> Result<&'a V, WrongMap> {
         self.check_owner(map)?;
-        self.handle.value_ref(map.map())
+        self.handle
+            .value_ref(map.map())
             .map(|rcv| &rcv.value)
             .ok_or(WrongMap)
     }
@@ -185,7 +197,8 @@ where
         }
         // SAFETY: owner validated and we have &mut map, so exclusive access for 'a
         self.check_owner(map)?; // ensure owner match
-        self.handle.value_mut(map.map_mut())
+        self.handle
+            .value_mut(map.map_mut())
             .map(|rcv| &mut rcv.value)
             .ok_or(WrongMap)
     }
