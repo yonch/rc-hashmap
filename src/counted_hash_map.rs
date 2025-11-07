@@ -150,6 +150,7 @@ where
     }
 
     /// Insert a new key -> value and mint a token for the returned handle.
+    #[allow(dead_code)]
     pub fn insert(&mut self, key: K, value: V) -> Result<CountedHandle<'static>, InsertError> {
         let counted = Counted::new(value, 0);
         match self.inner.insert(key, counted) {
@@ -224,10 +225,12 @@ where
         }
     }
 
+    #[allow(dead_code)]
     pub fn iter(&self) -> impl Iterator<Item = (Handle, &K, &V)> {
         self.inner.iter().map(|(h, k, c)| (h, k, &c.value))
     }
 
+    #[allow(dead_code)]
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (Handle, &K, &mut V)> {
         self.inner.iter_mut().map(|(h, k, c)| (h, k, &mut c.value))
     }
