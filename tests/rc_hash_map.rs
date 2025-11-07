@@ -156,14 +156,30 @@ struct K {
 }
 
 impl K {
-    fn new(id: u32) -> Self { Self { id, hold: None } }
-    fn with_ref(id: u32, r: Ref<K, V>) -> Self { Self { id, hold: Some(r) } }
+    fn new(id: u32) -> Self {
+        Self { id, hold: None }
+    }
+    fn with_ref(id: u32, r: Ref<K, V>) -> Self {
+        Self { id, hold: Some(r) }
+    }
 }
 
-impl PartialEq for K { fn eq(&self, other: &Self) -> bool { self.id == other.id } }
+impl PartialEq for K {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
 impl Eq for K {}
-impl Hash for K { fn hash<H: Hasher>(&self, state: &mut H) { self.id.hash(state) } }
-impl fmt::Debug for K { fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "K({})", self.id) } }
+impl Hash for K {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state)
+    }
+}
+impl fmt::Debug for K {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "K({})", self.id)
+    }
+}
 
 #[derive(Default)]
 struct V {
@@ -172,12 +188,16 @@ struct V {
 }
 
 impl fmt::Debug for V {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "Node({},{})", self.name, self.children.len()) }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Node({},{})", self.name, self.children.len())
+    }
 }
 
 type M = RcHashMap<K, V>;
 
-fn probe(id: u32) -> K { K { id, hold: None } }
+fn probe(id: u32) -> K {
+    K { id, hold: None }
+}
 
 // Test: cascade via value-held Ref.
 // Scenario: B.value holds Ref(C). After dropping external C, C remains
@@ -189,9 +209,33 @@ fn value_dag_cascade_drop() {
     // Build: B.value -> C; then drop C (kept alive by B.value), drop B; C should be removed during B's value drop.
     let mut m: M = RcHashMap::new();
 
-    let r_a = m.insert(K::new(1), V { name: "A".into(), children: vec![] }).unwrap();
-    let r_b = m.insert(K::new(2), V { name: "B".into(), children: vec![] }).unwrap();
-    let r_c = m.insert(K::new(3), V { name: "C".into(), children: vec![] }).unwrap();
+    let r_a = m
+        .insert(
+            K::new(1),
+            V {
+                name: "A".into(),
+                children: vec![],
+            },
+        )
+        .unwrap();
+    let r_b = m
+        .insert(
+            K::new(2),
+            V {
+                name: "B".into(),
+                children: vec![],
+            },
+        )
+        .unwrap();
+    let r_c = m
+        .insert(
+            K::new(3),
+            V {
+                name: "C".into(),
+                children: vec![],
+            },
+        )
+        .unwrap();
 
     // B -> C
     {
@@ -222,8 +266,24 @@ fn key_holds_ref_cascade() {
     // Build: Y.key holds Ref(X). Drop X external, then drop Y; dropping Y.key's Ref removes X.
     let mut m: M = RcHashMap::new();
 
-    let r_x = m.insert(K::new(10), V { name: "X".into(), children: vec![] }).unwrap();
-    let r_y = m.insert(K::with_ref(20, r_x.clone()), V { name: "Y".into(), children: vec![] }).unwrap();
+    let r_x = m
+        .insert(
+            K::new(10),
+            V {
+                name: "X".into(),
+                children: vec![],
+            },
+        )
+        .unwrap();
+    let r_y = m
+        .insert(
+            K::with_ref(20, r_x.clone()),
+            V {
+                name: "Y".into(),
+                children: vec![],
+            },
+        )
+        .unwrap();
 
     // After dropping external X, it survives thanks to Y.key
     drop(r_x);
@@ -243,9 +303,33 @@ fn deep_key_chain_drop_cascades() {
     // Z.key -> Y, Y.key -> X; dropping Z then Y should cascade and finally drop X through key drops.
     let mut m: M = RcHashMap::new();
 
-    let r_x = m.insert(K::new(1), V { name: "X".into(), children: vec![] }).unwrap();
-    let r_y = m.insert(K::with_ref(2, r_x.clone()), V { name: "Y".into(), children: vec![] }).unwrap();
-    let r_z = m.insert(K::with_ref(3, r_y.clone()), V { name: "Z".into(), children: vec![] }).unwrap();
+    let r_x = m
+        .insert(
+            K::new(1),
+            V {
+                name: "X".into(),
+                children: vec![],
+            },
+        )
+        .unwrap();
+    let r_y = m
+        .insert(
+            K::with_ref(2, r_x.clone()),
+            V {
+                name: "Y".into(),
+                children: vec![],
+            },
+        )
+        .unwrap();
+    let r_z = m
+        .insert(
+            K::with_ref(3, r_y.clone()),
+            V {
+                name: "Z".into(),
+                children: vec![],
+            },
+        )
+        .unwrap();
 
     // Drop Z external; Z removed, drops key's Ref to Y; Y still has external r_y, so still present.
     drop(r_z);
@@ -279,7 +363,9 @@ fn drop_other_refs_during_iter() {
 
     let mut seen = 0;
     for r in m.iter() {
-        if let Some(x) = keep.pop() { drop(x); }
+        if let Some(x) = keep.pop() {
+            drop(x);
+        }
         let _ = r.value(&m).unwrap();
         seen += 1;
     }
@@ -297,7 +383,11 @@ fn drop_refs_during_iter_mut_and_update() {
 
     for mut item in m.iter_mut() {
         *item.value_mut() += 1;
-        if item.key() == "x" { drop(r2.clone()); } else { drop(r1.clone()); }
+        if item.key() == "x" {
+            drop(r2.clone());
+        } else {
+            drop(r1.clone());
+        }
     }
 
     if let Some(rx) = m.find(&"x".to_string()) {
