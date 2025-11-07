@@ -105,13 +105,19 @@ mod bench {
 }
 
 #[cfg(target_os = "linux")]
+use bench::{
+    rc_hashmap_clone_drop_ref, rc_hashmap_get_hit, rc_hashmap_get_miss, rc_hashmap_insert_10k,
+    rc_hashmap_iter_mut_increment, rc_hashmap_ref_increment,
+};
+
+#[cfg(target_os = "linux")]
 iai::main!(
-    bench::rc_hashmap_insert_10k,
-    bench::rc_hashmap_get_hit,
-    bench::rc_hashmap_get_miss,
-    bench::rc_hashmap_clone_drop_ref,
-    bench::rc_hashmap_ref_cycle_increment,
-    bench::rc_hashmap_iter_mut_increment
+    rc_hashmap_insert_10k,
+    rc_hashmap_get_hit,
+    rc_hashmap_get_miss,
+    rc_hashmap_clone_drop_ref,
+    rc_hashmap_ref_increment,
+    rc_hashmap_iter_mut_increment
 );
 
 #[cfg(not(target_os = "linux"))]

@@ -1,0 +1,4 @@
+[env]
+# iaI expects cachegrind outputs with cache miss counters, but Ubuntu's valgrind
+# disables cache simulation by default. Force it on for all cargo invocations.
+VALGRIND_OPTS = "--cache-sim=yes"

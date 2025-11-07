@@ -59,11 +59,17 @@ mod bench {
 }
 
 #[cfg(target_os = "linux")]
+use bench::{
+    handle_hashmap_find_hit, handle_hashmap_find_miss, handle_hashmap_insert_10k,
+    handle_hashmap_remove_by_handle,
+};
+
+#[cfg(target_os = "linux")]
 iai::main!(
-    bench::handle_hashmap_insert_10k,
-    bench::handle_hashmap_find_hit,
-    bench::handle_hashmap_find_miss,
-    bench::handle_hashmap_remove_by_handle
+    handle_hashmap_insert_10k,
+    handle_hashmap_find_hit,
+    handle_hashmap_find_miss,
+    handle_hashmap_remove_by_handle
 );
 
 #[cfg(not(target_os = "linux"))]
