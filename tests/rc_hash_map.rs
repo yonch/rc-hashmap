@@ -1,4 +1,4 @@
-use rc_hashmap::{InsertError, RcHashMap};
+use rc_hashmap::{InsertError, RcHashMap, Ref};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -110,3 +110,202 @@ fn iter_mut_updates_and_allows_cloning_ref() {
     assert_eq!(*r1.value(&m).unwrap(), 11);
     assert_eq!(*r2.value(&m).unwrap(), 12);
 }
+
+// ---- DAG tests (values and keys hold Refs) ----
+
+use std::fmt;
+
+// Concrete types for DAG scenarios
+#[derive(Clone)]
+struct K {
+    id: u32,
+    hold: Option<Ref<K, V>>, // key may hold a Ref to another entry
+}
+
+impl K {
+    fn new(id: u32) -> Self { Self { id, hold: None } }
+    fn with_ref(id: u32, r: Ref<K, V>) -> Self { Self { id, hold: Some(r) } }
+}
+
+impl PartialEq for K { fn eq(&self, other: &Self) -> bool { self.id == other.id } }
+impl Eq for K {}
+impl Hash for K { fn hash<H: Hasher>(&self, state: &mut H) { self.id.hash(state) } }
+impl fmt::Debug for K { fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "K({})", self.id) } }
+
+#[derive(Default)]
+struct V {
+    name: String,
+    children: Vec<Ref<K, V>>, // DAG edges to other entries
+}
+
+impl fmt::Debug for V {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "Node({},{})", self.name, self.children.len()) }
+}
+
+type M = RcHashMap<K, V>;
+
+fn probe(id: u32) -> K { K { id, hold: None } }
+
+#[test]
+fn value_dag_cascade_drop() {
+    // Build: B.value -> C; then drop C (kept alive by B.value), drop B; C should be removed during B's value drop.
+    let mut m: M = RcHashMap::new();
+
+    let r_a = m.insert(K::new(1), V { name: "A".into(), children: vec![] }).unwrap();
+    let r_b = m.insert(K::new(2), V { name: "B".into(), children: vec![] }).unwrap();
+    let r_c = m.insert(K::new(3), V { name: "C".into(), children: vec![] }).unwrap();
+
+    // B -> C
+    {
+        let b = r_b.value_mut(&mut m).unwrap();
+        b.children.push(r_c.clone());
+    }
+
+    // Drop external C; C remains due to B.children
+    drop(r_c);
+    assert!(m.contains_key(&probe(3)));
+
+    // Now drop B; should remove B, and during drop of B.value drop C's Ref, removing C.
+    drop(r_b);
+    assert!(!m.contains_key(&probe(2)));
+    assert!(!m.contains_key(&probe(3)));
+
+    // A remains
+    assert!(m.contains_key(&probe(1)));
+    drop(r_a);
+}
+
+#[test]
+fn key_holds_ref_cascade() {
+    // Build: Y.key holds Ref(X). Drop X external, then drop Y; dropping Y.key's Ref removes X.
+    let mut m: M = RcHashMap::new();
+
+    let r_x = m.insert(K::new(10), V { name: "X".into(), children: vec![] }).unwrap();
+    let r_y = m.insert(K::with_ref(20, r_x.clone()), V { name: "Y".into(), children: vec![] }).unwrap();
+
+    // After dropping external X, it survives thanks to Y.key
+    drop(r_x);
+    assert!(m.contains_key(&probe(10)));
+
+    // Drop Y; its key drops Ref(X) and cascades X removal
+    drop(r_y);
+    assert!(!m.contains_key(&probe(20)));
+    assert!(!m.contains_key(&probe(10)));
+}
+
+#[test]
+fn deep_key_chain_drop_cascades() {
+    // Z.key -> Y, Y.key -> X; dropping Z then Y should cascade and finally drop X through key drops.
+    let mut m: M = RcHashMap::new();
+
+    let r_x = m.insert(K::new(1), V { name: "X".into(), children: vec![] }).unwrap();
+    let r_y = m.insert(K::with_ref(2, r_x.clone()), V { name: "Y".into(), children: vec![] }).unwrap();
+    let r_z = m.insert(K::with_ref(3, r_y.clone()), V { name: "Z".into(), children: vec![] }).unwrap();
+
+    // Drop Z external; Z removed, drops key's Ref to Y; Y still has external r_y, so still present.
+    drop(r_z);
+    assert!(!m.contains_key(&probe(3)));
+    assert!(m.contains_key(&probe(2)));
+    assert!(m.contains_key(&probe(1)));
+
+    // Drop Y external; Y removed, key's Ref to X dropped; X had only r_x external, so keep it for now.
+    drop(r_y);
+    assert!(!m.contains_key(&probe(2)));
+    assert!(m.contains_key(&probe(1)));
+
+    // Finally drop X external; no more refs -> X removed
+    drop(r_x);
+    assert!(!m.contains_key(&probe(1)));
+}
+
+// ---- Drops during iter and borrows ----
+
+#[test]
+fn drop_other_refs_during_iter() {
+    let mut m: RcHashMap<String, i32> = RcHashMap::new();
+    let r1 = m.insert("a".into(), 1).unwrap();
+    let r2 = m.insert("b".into(), 2).unwrap();
+    let r3 = m.insert("c".into(), 3).unwrap();
+
+    let mut keep = vec![r1.clone(), r2.clone(), r3.clone()];
+
+    let mut seen = 0;
+    for r in m.iter() {
+        if let Some(x) = keep.pop() { drop(x); }
+        let _ = r.value(&m).unwrap();
+        seen += 1;
+    }
+    assert_eq!(seen, 3);
+}
+
+#[test]
+fn drop_refs_during_iter_mut_and_update() {
+    let mut m: RcHashMap<String, i32> = RcHashMap::new();
+    let r1 = m.insert("x".into(), 10).unwrap();
+    let r2 = m.insert("y".into(), 20).unwrap();
+
+    for mut item in m.iter_mut() {
+        *item.value_mut() += 1;
+        if item.key() == &"x" { drop(r2.clone()); } else { drop(r1.clone()); }
+    }
+
+    if let Some(rx) = m.find(&"x".to_string()) {
+        assert_eq!(*rx.value(&m).unwrap(), 11);
+    }
+    if let Some(ry) = m.find(&"y".to_string()) {
+        assert_eq!(*ry.value(&m).unwrap(), 21);
+    }
+}
+
+#[test]
+fn hold_shared_value_and_drop_others() {
+    let mut m: RcHashMap<String, i32> = RcHashMap::new();
+    let ra = m.insert("a".into(), 1).unwrap();
+    let rb = m.insert("b".into(), 2).unwrap();
+
+    {
+        let va = ra.value(&m).unwrap();
+        assert_eq!(*va, 1);
+        drop(rb);
+    }
+
+    assert!(m.contains_key(&"a".to_string()));
+    assert!(!m.contains_key(&"b".to_string()));
+
+    drop(ra);
+}
+
+#[test]
+fn hold_mut_value_and_drop_others() {
+    let mut m: RcHashMap<String, i32> = RcHashMap::new();
+    let ra = m.insert("a".into(), 10).unwrap();
+    let rb = m.insert("b".into(), 20).unwrap();
+
+    {
+        let va = ra.value_mut(&mut m).unwrap();
+        *va += 5;
+        drop(rb);
+    }
+
+    let ra2 = m.find(&"a".to_string()).unwrap();
+    assert_eq!(*ra2.value(&m).unwrap(), 15);
+    assert!(!m.contains_key(&"b".to_string()));
+
+    drop(ra);
+    drop(ra2);
+}
+
+#[test]
+fn refs_survive_map_drop_and_can_clone_then_drop() {
+    let r = {
+        let mut m: RcHashMap<String, i32> = RcHashMap::new();
+        m.insert("k".into(), 7).unwrap()
+    }; // drop map here
+
+    let r2 = r.clone();
+    let r3 = r2.clone();
+    drop(r);
+    drop(r2);
+    drop(r3);
+}
+
