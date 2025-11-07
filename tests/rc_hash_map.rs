@@ -1,7 +1,22 @@
+// RcHashMap unit test suite (consolidated).
+//
+// Each test documents what behavior is being verified and which
+// invariants are assumed or asserted. The core invariants exercised:
+// - Liveness: an entry is present iff there exists ≥1 outstanding Ref.
+// - Uniqueness: duplicate insert rejects without minting a token.
+// - Owner identity: accessors require the original owner map.
+// - Iteration: iter() yields Refs, iter_mut() yields mutable access,
+//   both remain valid while unrelated entries are removed.
+// - Borrowing: holding &V or &mut V does not prevent unrelated removals.
+// - Drop ordering: unlink-before-drop allows nested cascades via drops
+//   of Refs held in keys/values (DAG scenarios).
 use rc_hashmap::{InsertError, RcHashMap, Ref};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+// Test: basic liveness under insert/find/clone/drop.
+// Assumes: len/contains_key reflect the presence of ≥1 outstanding Ref.
+// Verifies: dropping the last Ref removes the entry.
 #[test]
 fn insert_get_clone_drop_removes() {
     let mut m = RcHashMap::new();
@@ -29,6 +44,9 @@ fn insert_get_clone_drop_removes() {
     assert!(!m.contains_key(&"k1".to_string()));
 }
 
+// Test: unique keys policy.
+// Assumes: duplicate key insertion is rejected without side effects.
+// Verifies: DuplicateKey error; no extra Ref minted.
 #[test]
 fn duplicate_insert_rejected() {
     let mut m = RcHashMap::new();
@@ -41,6 +59,9 @@ fn duplicate_insert_rejected() {
     drop(r);
 }
 
+// Test: Ref equality and hashing semantics.
+// Assumes: Eq/Hash derive from (owner_ptr, handle) identity.
+// Verifies: clone equals original; different entries are not equal and hash differently.
 #[test]
 fn ref_equality_and_hash() {
     let mut m = RcHashMap::new();
@@ -58,6 +79,9 @@ fn ref_equality_and_hash() {
     assert!(r1 != r2);
 }
 
+// Test: owner identity enforcement in accessors.
+// Assumes: accessors require the same RcHashMap instance.
+// Verifies: using a Ref with a different map returns Err(WrongMap).
 #[test]
 fn wrong_map_accessors_reject() {
     let mut m1 = RcHashMap::new();
@@ -74,6 +98,9 @@ fn wrong_map_accessors_reject() {
     assert!(r.key(&m2).is_err());
 }
 
+// Test: iter() invariants.
+// Assumes: iterator yields one Ref per entry and does not mutate.
+// Verifies: count equals len; each Ref can read the corresponding value.
 #[test]
 fn iter_returns_refs() {
     let mut m = RcHashMap::new();
@@ -91,6 +118,9 @@ fn iter_returns_refs() {
     }
 }
 
+// Test: iter_mut() invariants and interaction with Ref cloning.
+// Assumes: mutable access per item; cloning Refs keeps items alive across loop.
+// Verifies: in-place mutations are visible after iteration and len unchanged.
 #[test]
 fn iter_mut_updates_and_allows_cloning_ref() {
     let mut m = RcHashMap::new();
@@ -116,6 +146,9 @@ fn iter_mut_updates_and_allows_cloning_ref() {
 use std::fmt;
 
 // Concrete types for DAG scenarios
+//
+// Purpose: create values and keys that hold Refs to other entries so we
+// can test cascaded removals that occur while dropping user K/V.
 #[derive(Clone)]
 struct K {
     id: u32,
@@ -146,6 +179,11 @@ type M = RcHashMap<K, V>;
 
 fn probe(id: u32) -> K { K { id, hold: None } }
 
+// Test: cascade via value-held Ref.
+// Scenario: B.value holds Ref(C). After dropping external C, C remains
+// live via B.value. Dropping B drops B.value first (while keepalive
+// still holds Inner), which drops Ref(C) and removes C.
+// Verifies: nested drop path is safe and cascades as expected.
 #[test]
 fn value_dag_cascade_drop() {
     // Build: B.value -> C; then drop C (kept alive by B.value), drop B; C should be removed during B's value drop.
@@ -175,6 +213,10 @@ fn value_dag_cascade_drop() {
     drop(r_a);
 }
 
+// Test: cascade via key-held Ref.
+// Scenario: Y.key holds Ref(X). Dropping Y first removes Y then drops
+// Y.key, which drops Ref(X) and removes X.
+// Verifies: key-drop path can cascade removals safely.
 #[test]
 fn key_holds_ref_cascade() {
     // Build: Y.key holds Ref(X). Drop X external, then drop Y; dropping Y.key's Ref removes X.
@@ -193,6 +235,9 @@ fn key_holds_ref_cascade() {
     assert!(!m.contains_key(&probe(10)));
 }
 
+// Test: deeper cascade via key-held chain.
+// Scenario: Z.key→Y, Y.key→X. Drop Z, then Y, then X.
+// Verifies: multiple-level cascades follow unlink-before-drop ordering.
 #[test]
 fn deep_key_chain_drop_cascades() {
     // Z.key -> Y, Y.key -> X; dropping Z then Y should cascade and finally drop X through key drops.
@@ -220,6 +265,9 @@ fn deep_key_chain_drop_cascades() {
 
 // ---- Drops during iter and borrows ----
 
+// Test: dropping other entries during iter() while reading current.
+// Assumes: iterator provides a Ref that keeps the current entry alive.
+// Verifies: loop yields original count; no panics while other entries are removed.
 #[test]
 fn drop_other_refs_during_iter() {
     let mut m: RcHashMap<String, i32> = RcHashMap::new();
@@ -238,6 +286,9 @@ fn drop_other_refs_during_iter() {
     assert_eq!(seen, 3);
 }
 
+// Test: dropping other entries during iter_mut() while mutating current.
+// Assumes: &mut V is valid for the current entry and unrelated removals are allowed.
+// Verifies: mutation persisted; other entry may be removed safely.
 #[test]
 fn drop_refs_during_iter_mut_and_update() {
     let mut m: RcHashMap<String, i32> = RcHashMap::new();
@@ -257,6 +308,9 @@ fn drop_refs_during_iter_mut_and_update() {
     }
 }
 
+// Test: holding &V while other entries are removed.
+// Assumes: shared borrows do not prevent interior removals of unrelated entries.
+// Verifies: held &V remains valid; other entry is removed.
 #[test]
 fn hold_shared_value_and_drop_others() {
     let mut m: RcHashMap<String, i32> = RcHashMap::new();
@@ -275,6 +329,9 @@ fn hold_shared_value_and_drop_others() {
     drop(ra);
 }
 
+// Test: holding &mut V while other entries are removed.
+// Assumes: exclusive borrow is valid and does not block unrelated removals.
+// Verifies: mutation persists; other entry removed.
 #[test]
 fn hold_mut_value_and_drop_others() {
     let mut m: RcHashMap<String, i32> = RcHashMap::new();
@@ -295,6 +352,9 @@ fn hold_mut_value_and_drop_others() {
     drop(ra2);
 }
 
+// Test: map drop with live Ref(s).
+// Assumes: value-held keepalive tokens keep Inner alive while Refs exist.
+// Verifies: cloning/dropping Refs post map-drop is safe (no panics).
 #[test]
 fn refs_survive_map_drop_and_can_clone_then_drop() {
     let r = {
@@ -308,4 +368,3 @@ fn refs_survive_map_drop_and_can_clone_then_drop() {
     drop(r2);
     drop(r3);
 }
-
