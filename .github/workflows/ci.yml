@@ -50,4 +50,4 @@ jobs:
         run: cargo bench --bench rc_hashmap_iai
 
       - name: Run iai benches (HandleHashMap)
-        run: cargo bench --bench handle_hashmap_iai --features bench_internal
+        run: cargo bench --bench handle_hashmap_iai
