@@ -27,3 +27,15 @@ jobs:
       - name: Tests
         run: cargo test --all-features --verbose
 
+      - name: Install valgrind (cached)
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: valgrind
+          # bump this if you need to bust the cache
+          version: 1
+
+      - name: Run iai benches (RcHashMap)
+        run: cargo bench --bench rc_hashmap_iai
+
+      - name: Run iai benches (HandleHashMap)
+        run: cargo bench --bench handle_hashmap_iai --features bench_internal
