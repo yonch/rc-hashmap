@@ -20,12 +20,8 @@ hashbrown = { version = "0.16" }
 criterion = "0.5"
 proptest = "1"
 
-[target.'cfg(target_os = "linux")'.dev-dependencies]
-iai = "0.1"
-
-[features]
-# Internal benchmarking hook: exposes HandleHashMap for benches only.
-bench_internal = []
+#[features]
+# (no special features required for benches)
 
 [[bench]]
 name = "rc_hashmap_bench"
@@ -34,12 +30,7 @@ harness = false
 [[bench]]
 name = "handle_hashmap_bench"
 harness = false
-required-features = ["bench_internal"]
 
 [[bench]]
-name = "rc_hashmap_iai"
-harness = false
-
-[[bench]]
-name = "handle_hashmap_iai"
+name = "counted_hashmap_bench"
 harness = false

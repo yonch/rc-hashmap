@@ -27,7 +27,7 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-  iai-bench:
+  benches:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -39,15 +39,5 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Install valgrind (cached)
-        uses: awalsh128/cache-apt-pkgs-action@v1
-        with:
-          packages: valgrind
-          # bump this if you need to bust the cache
-          version: 1
-
-      - name: Run iai benches (RcHashMap)
-        run: cargo bench --bench rc_hashmap_iai
-
-      - name: Run iai benches (HandleHashMap)
-        run: cargo bench --bench handle_hashmap_iai
+      - name: Run criterion benches
+        run: cargo bench --benches --verbose

@@ -67,7 +67,7 @@
 //! - The internal `RcCount<T>` helper (in `tokens`) encapsulates the
 //!   raw-pointer based use of `std::rc::Rc` increment/decrement APIs.
 
-mod counted_hash_map;
+pub mod counted_hash_map;
 pub mod handle_hash_map;
 mod handle_hash_map_proptest;
 mod rc_hash_map;
