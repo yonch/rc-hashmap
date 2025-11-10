@@ -165,8 +165,7 @@ where
     {
         let _g = self.reentrancy.enter();
         let hash = self.make_hash(q);
-        if self
-            .index
+        self.index
             .find(hash, |&k| {
                 self.slots
                     .get(k)
@@ -174,10 +173,6 @@ where
                     .unwrap_or(false)
             })
             .is_some()
-        {
-            return true;
-        }
-        false
     }
 
     pub fn insert(&mut self, key: K, value: V) -> Result<Handle, InsertError> {
@@ -229,15 +224,17 @@ where
     pub fn remove(&mut self, handle: Handle) -> Option<(K, V)> {
         let _g = self.reentrancy.enter();
         let k = handle.raw_handle();
-        let entry_hash = self.slots.get(k)?.hash;
 
-        // Unlink from index first via occupied entry removal
-        if let Ok(occ) = self.index.find_entry(entry_hash, |&kk| kk == k) {
-            let _ = occ.remove();
-        }
+        // Remove slot
+        let entry = self.slots.remove(k)?;
 
-        // Now take from slot; structure is consistent for any user code during drops
-        self.slots.remove(k).map(|e| (e.key, e.value))
+        // Unlink from index via occupied entry removal
+        self.index
+            .find_entry(entry.hash, |&kk| kk == k)
+            .unwrap()
+            .remove();
+
+        Some((entry.key, entry.value))
     }
 
     pub(crate) fn handle_key(&self, h: Handle) -> Option<&K> {
