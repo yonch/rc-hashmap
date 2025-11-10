@@ -2,7 +2,6 @@ use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughpu
 use rand_core::{RngCore, SeedableRng};
 use rand_pcg::Lcg128Xsl64 as Pcg;
 use rc_hashmap::counted_hash_map::CountedHashMap;
-use std::collections::HashSet;
 use std::hint::black_box;
 
 fn key(n: u64) -> String {
@@ -99,14 +98,14 @@ fn bench_query(c: &mut Criterion) {
         let mut m = CountedHashMap::new();
         let mut rng_keys = Pcg::seed_from_u64(7);
         let keys: Vec<_> = (0..100_000).map(|_| key(rng_keys.next_u64())).collect();
-        let held: Vec<_> = keys
+        let handles: Vec<_> = keys
             .iter()
             .cloned()
             .enumerate()
             .map(|(i, k)| m.insert(k, i as u64).unwrap())
             .collect();
         // Keep tokens alive for the duration of the benchmark; avoid drop at end.
-        core::mem::forget(held);
+        core::mem::forget(handles);
         // Precompute 10k random query keys using PCG
         let n = keys.len();
         let mut rng_q = Pcg::seed_from_u64(0x9e3779b97f4a7c15);
@@ -196,9 +195,8 @@ fn bench_access(c: &mut Criterion) {
             },
             |(mut m, targets, handles)| {
                 for h in &targets {
-                    if let Some(v) = h.value_mut(&mut m) {
-                        *v = v.wrapping_add(1);
-                    }
+                    let v = h.value_mut(&mut m).unwrap();
+                    *v = v.wrapping_add(1);
                 }
                 // Return all tokens after timing
                 black_box(CountedAccessGuard {

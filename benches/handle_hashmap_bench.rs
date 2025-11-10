@@ -2,7 +2,6 @@ use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughpu
 use rand_core::{RngCore, SeedableRng};
 use rand_pcg::Lcg128Xsl64 as Pcg;
 use rc_hashmap::handle_hash_map::{Handle, HandleHashMap};
-use std::collections::HashSet;
 use std::hint::black_box;
 
 fn key(n: u64) -> String {
@@ -157,9 +156,8 @@ fn bench_access(c: &mut Criterion) {
             },
             |(mut m, targets)| {
                 for h in targets {
-                    if let Some(v) = h.value_mut(&mut m) {
-                        *v = v.wrapping_add(1);
-                    }
+                    let v = h.value_mut(&mut m).unwrap();
+                    *v = v.wrapping_add(1);
                 }
                 black_box(m)
             },
