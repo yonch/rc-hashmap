@@ -1,4 +1,4 @@
-use criterion::{BatchSize, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion, Throughput};
 use rand_core::{RngCore, SeedableRng};
 use rand_pcg::Lcg128Xsl64 as Pcg;
 use rc_hashmap::RcHashMap;
@@ -66,16 +66,24 @@ fn bench_remove(c: &mut Criterion) {
                 let n = all.len();
                 let mut sel = std::collections::HashSet::with_capacity(10_000);
                 let mut idx_rng = Pcg::seed_from_u64(0x9e3779b97f4a7c15);
-                while sel.len() < 10_000 { sel.insert((idx_rng.next_u64() as usize) % n); }
+                while sel.len() < 10_000 {
+                    sel.insert((idx_rng.next_u64() as usize) % n);
+                }
                 let mut to_drop = Vec::with_capacity(10_000);
                 let mut remain = Vec::with_capacity(n - 10_000);
                 for (i, r) in all.into_iter().enumerate() {
-                    if sel.contains(&i) { to_drop.push(r); } else { remain.push(r); }
+                    if sel.contains(&i) {
+                        to_drop.push(r);
+                    } else {
+                        remain.push(r);
+                    }
                 }
                 (m, to_drop, remain)
             },
             |(m, to_drop, remain)| {
-                for r in to_drop { drop(r); }
+                for r in to_drop {
+                    drop(r);
+                }
                 // Defer drop of remaining refs to after timing
                 black_box((m, remain))
             },
@@ -106,7 +114,10 @@ fn bench_query(c: &mut Criterion) {
             .map(|_| keys[(rng_q.next_u64() as usize) % n].clone())
             .collect();
         b.iter(|| {
-            for k in &queries { let r = m.find(k).unwrap(); black_box(r); }
+            for k in &queries {
+                let r = m.find(k).unwrap();
+                black_box(r);
+            }
         })
     });
     // miss 10k
@@ -152,7 +163,10 @@ fn bench_access(c: &mut Criterion) {
                 (m, targets, remain)
             },
             |(mut m, targets, remain)| {
-                for r in &targets { let v = r.value_mut(&mut m).unwrap(); *v = v.wrapping_add(1); }
+                for r in &targets {
+                    let v = r.value_mut(&mut m).unwrap();
+                    *v = v.wrapping_add(1);
+                }
                 // Return both map and refs so ref-drop occurs after timing
                 black_box((m, targets, remain))
             },

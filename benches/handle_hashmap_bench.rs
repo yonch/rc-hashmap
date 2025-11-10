@@ -82,7 +82,9 @@ fn bench_remove(c: &mut Criterion) {
                 (m, to_remove)
             },
             |(mut m, to_remove)| {
-                for h in to_remove { let _ = m.remove(h); }
+                for h in to_remove {
+                    let _ = m.remove(h);
+                }
                 black_box(m)
             },
             BatchSize::SmallInput,
@@ -109,7 +111,9 @@ fn bench_query(c: &mut Criterion) {
             .map(|_| keys[(rng_q.next_u64() as usize) % n].clone())
             .collect();
         b.iter(|| {
-            for k in &queries { black_box(m.find(k)); }
+            for k in &queries {
+                black_box(m.find(k));
+            }
         })
     });
     // miss
@@ -152,7 +156,9 @@ fn bench_access(c: &mut Criterion) {
             },
             |(mut m, targets)| {
                 for h in targets {
-                    if let Some(v) = h.value_mut(&mut m) { *v = v.wrapping_add(1); }
+                    if let Some(v) = h.value_mut(&mut m) {
+                        *v = v.wrapping_add(1);
+                    }
                 }
                 black_box(m)
             },

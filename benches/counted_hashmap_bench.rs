@@ -37,7 +37,9 @@ fn bench_insert(c: &mut Criterion) {
                 let handles: Vec<_> = (0..110_000)
                     .map(|i| m.insert(key(rng.next_u64()), i as u64).unwrap())
                     .collect();
-                for h in handles { let _ = m.put(h); }
+                for h in handles {
+                    let _ = m.put(h);
+                }
                 m
             },
             |mut m| {
@@ -76,12 +78,18 @@ fn bench_remove(c: &mut Criterion) {
                 let mut to_remove = Vec::with_capacity(10_000);
                 let mut remain = Vec::with_capacity(n - 10_000);
                 for (i, h) in all.into_iter().enumerate() {
-                    if sel.contains(&i) { to_remove.push(h); } else { remain.push(h); }
+                    if sel.contains(&i) {
+                        to_remove.push(h);
+                    } else {
+                        remain.push(h);
+                    }
                 }
                 (m, to_remove, remain)
             },
             |(mut m, to_remove, remain)| {
-                for h in to_remove { let _ = m.put(h); }
+                for h in to_remove {
+                    let _ = m.put(h);
+                }
                 // Defer return of remaining tokens to after timing
                 black_box(ReturnTokensOnDrop { m, handles: remain })
             },
@@ -114,7 +122,11 @@ fn bench_query(c: &mut Criterion) {
             .map(|_| keys[(rng_q.next_u64() as usize) % n].clone())
             .collect();
         b.iter(|| {
-            for k in &queries { if let Some(h) = m.find(k) { let _ = m.put(h); } }
+            for k in &queries {
+                if let Some(h) = m.find(k) {
+                    let _ = m.put(h);
+                }
+            }
         })
     });
     // miss
@@ -144,10 +156,11 @@ struct ReturnTokensOnDrop {
 }
 impl Drop for ReturnTokensOnDrop {
     fn drop(&mut self) {
-        for h in self.handles.drain(..) { let _ = self.m.put(h); }
+        for h in self.handles.drain(..) {
+            let _ = self.m.put(h);
+        }
     }
 }
-
 
 // Guard that holds separate sets of tokens and returns all on drop
 struct CountedAccessGuard {
@@ -157,8 +170,12 @@ struct CountedAccessGuard {
 }
 impl Drop for CountedAccessGuard {
     fn drop(&mut self) {
-        for h in self.a.drain(..) { let _ = self.m.put(h); }
-        for h in self.b.drain(..) { let _ = self.m.put(h); }
+        for h in self.a.drain(..) {
+            let _ = self.m.put(h);
+        }
+        for h in self.b.drain(..) {
+            let _ = self.m.put(h);
+        }
     }
 }
 
@@ -186,9 +203,17 @@ fn bench_access(c: &mut Criterion) {
                 (m, targets, handles)
             },
             |(mut m, targets, handles)| {
-                for h in &targets { if let Some(v) = h.value_mut(&mut m) { *v = v.wrapping_add(1); } }
+                for h in &targets {
+                    if let Some(v) = h.value_mut(&mut m) {
+                        *v = v.wrapping_add(1);
+                    }
+                }
                 // Return all tokens after timing
-                black_box(CountedAccessGuard { m, a: targets, b: handles })
+                black_box(CountedAccessGuard {
+                    m,
+                    a: targets,
+                    b: handles,
+                })
             },
             BatchSize::SmallInput,
         )
@@ -207,7 +232,9 @@ fn bench_access(c: &mut Criterion) {
             },
             |m| {
                 let mut sum = 0u64;
-                for (_h, _k, v) in m.iter() { sum = sum.wrapping_add(*v); }
+                for (_h, _k, v) in m.iter() {
+                    sum = sum.wrapping_add(*v);
+                }
                 black_box(sum)
             },
             BatchSize::SmallInput,
@@ -226,7 +253,9 @@ fn bench_access(c: &mut Criterion) {
                 m
             },
             |mut m| {
-                for (_h, _k, v) in m.iter_mut() { *v = v.wrapping_add(1); }
+                for (_h, _k, v) in m.iter_mut() {
+                    *v = v.wrapping_add(1);
+                }
                 black_box(m)
             },
             BatchSize::SmallInput,
