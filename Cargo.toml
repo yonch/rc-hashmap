@@ -19,6 +19,8 @@ hashbrown = { version = "0.16" }
 [dev-dependencies]
 criterion = "0.5"
 proptest = "1"
+rand_pcg = "0.3"
+rand_core = "0.6"
 
 #[features]
 # (no special features required for benches)

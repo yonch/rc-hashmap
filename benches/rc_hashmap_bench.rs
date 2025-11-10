@@ -1,13 +1,8 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
+use rand_core::{RngCore, SeedableRng};
+use rand_pcg::Lcg128Xsl64 as Pcg;
 use rc_hashmap::RcHashMap;
 use std::time::Duration;
-
-fn lcg(mut s: u64) -> impl Iterator<Item = u64> {
-    std::iter::from_fn(move || {
-        s = s.wrapping_mul(6364136223846793005).wrapping_add(1);
-        Some(s)
-    })
-}
 
 fn key(n: u64) -> String {
     format!("k{:016x}", n)
@@ -18,9 +13,10 @@ fn bench_insert_fresh_100k(c: &mut Criterion) {
         b.iter_batched(
             RcHashMap::<String, u64>::new,
             |mut m| {
+                let mut rng = Pcg::seed_from_u64(1);
                 let mut refs = Vec::with_capacity(100_000);
-                for (i, x) in lcg(1).take(100_000).enumerate() {
-                    refs.push(m.insert(key(x), i as u64).unwrap());
+                for i in 0..100_000 {
+                    refs.push(m.insert(key(rng.next_u64()), i as u64).unwrap());
                 }
                 black_box((m, refs))
             },
@@ -34,18 +30,18 @@ fn bench_insert_warm_100k(c: &mut Criterion) {
         b.iter_batched(
             || {
                 let mut m = RcHashMap::new();
-                let refs: Vec<_> = lcg(2)
-                    .take(110_000)
-                    .enumerate()
-                    .map(|(i, x)| m.insert(key(x), i as u64).unwrap())
+                let mut rng = Pcg::seed_from_u64(2);
+                let refs: Vec<_> = (0..110_000)
+                    .map(|i| m.insert(key(rng.next_u64()), i as u64).unwrap())
                     .collect();
                 drop(refs);
                 m
             },
             |mut m| {
+                let mut rng = Pcg::seed_from_u64(3);
                 let mut refs = Vec::with_capacity(100_000);
-                for (i, x) in lcg(3).take(100_000).enumerate() {
-                    refs.push(m.insert(key(x), i as u64).unwrap());
+                for i in 0..100_000 {
+                    refs.push(m.insert(key(rng.next_u64()), i as u64).unwrap());
                 }
                 black_box((m, refs))
             },
@@ -59,19 +55,15 @@ fn bench_remove_random_10k(c: &mut Criterion) {
         b.iter_batched(
             || {
                 let mut m = RcHashMap::new();
-                let all: Vec<_> = lcg(5)
-                    .take(110_000)
-                    .enumerate()
-                    .map(|(i, x)| m.insert(key(x), i as u64).unwrap())
+                let mut rng = Pcg::seed_from_u64(5);
+                let all: Vec<_> = (0..110_000)
+                    .map(|i| m.insert(key(rng.next_u64()), i as u64).unwrap())
                     .collect();
-                // Precompute 10k unique indices via LCG
+                // Precompute 10k unique indices via PCG
                 let n = all.len();
                 let mut sel = std::collections::HashSet::with_capacity(10_000);
-                let mut s = 0x9e3779b97f4a7c15u64;
-                while sel.len() < 10_000 {
-                    s = s.wrapping_mul(2862933555777941757).wrapping_add(3037000493);
-                    sel.insert((s as usize) % n);
-                }
+                let mut idx_rng = Pcg::seed_from_u64(0x9e3779b97f4a7c15);
+                while sel.len() < 10_000 { sel.insert((idx_rng.next_u64() as usize) % n); }
                 let mut to_drop = Vec::with_capacity(10_000);
                 let mut remain = Vec::with_capacity(n - 10_000);
                 for (i, r) in all.into_iter().enumerate() {
@@ -92,21 +84,19 @@ fn bench_remove_random_10k(c: &mut Criterion) {
 fn bench_get_hit_10k(c: &mut Criterion) {
     c.bench_function("rc::get_hit_10k_on_100k", |b| {
         let mut m = RcHashMap::new();
-        let keys: Vec<_> = lcg(7).take(100_000).map(key).collect();
+        let mut rng_keys = Pcg::seed_from_u64(7);
+        let keys: Vec<_> = (0..100_000).map(|_| key(rng_keys.next_u64())).collect();
         let _held: Vec<_> = keys
             .iter()
             .cloned()
             .enumerate()
             .map(|(i, k)| m.insert(k, i as u64).unwrap())
             .collect();
-        // Precompute 10k random query keys using LCG
+        // Precompute 10k random query keys using PCG
         let n = keys.len();
-        let mut s = 0x9e3779b97f4a7c15u64;
+        let mut rng_q = Pcg::seed_from_u64(0x9e3779b97f4a7c15);
         let queries: Vec<String> = (0..10_000)
-            .map(|_| {
-                s = s.wrapping_mul(2862933555777941757).wrapping_add(3037000493);
-                keys[(s as usize) % n].clone()
-            })
+            .map(|_| keys[(rng_q.next_u64() as usize) % n].clone())
             .collect();
         b.iter(|| {
             for k in &queries { let r = m.find(k).unwrap(); black_box(r); }
@@ -117,13 +107,14 @@ fn bench_get_hit_10k(c: &mut Criterion) {
 fn bench_get_miss_10k(c: &mut Criterion) {
     c.bench_function("rc::get_miss_10k_on_100k", |b| {
         let mut m = RcHashMap::new();
-        for (i, x) in lcg(11).take(100_000).enumerate() {
-            let _ = m.insert(key(x), i as u64).unwrap();
+        let mut rng_ins = Pcg::seed_from_u64(11);
+        for i in 0..100_000 {
+            let _ = m.insert(key(rng_ins.next_u64()), i as u64).unwrap();
         }
-        let mut miss = lcg(0xdead_beef);
+        let mut miss = Pcg::seed_from_u64(0xdead_beefu64);
         b.iter(|| {
             for _ in 0..10_000 {
-                let k = key(miss.next().unwrap());
+                let k = key(miss.next_u64());
                 black_box(m.find(&k));
             }
         })
@@ -135,19 +126,16 @@ fn bench_handle_access_increment(c: &mut Criterion) {
         b.iter_batched(
             || {
                 let mut m: RcHashMap<String, u64> = RcHashMap::new();
-                let refs: Vec<_> = lcg(123)
-                    .take(100_000)
-                    .enumerate()
-                    .map(|(i, x)| m.insert(key(x), i as u64).unwrap())
+                let mut rng = Pcg::seed_from_u64(123);
+                let refs: Vec<_> = (0..100_000)
+                    .map(|i| m.insert(key(rng.next_u64()), i as u64).unwrap())
                     .collect();
                 // Precompute 10k random refs to touch
                 let n = refs.len();
-                let mut s = 0x9e3779b97f4a7c15u64;
+                let mut rsel = Pcg::seed_from_u64(0x9e3779b97f4a7c15);
                 let mut targets = Vec::with_capacity(10_000);
-                // Select indices (allow duplicates; cheaper)
                 for _ in 0..10_000 {
-                    s = s.wrapping_mul(2862933555777941757).wrapping_add(3037000493);
-                    let idx = (s as usize) % n;
+                    let idx = (rsel.next_u64() as usize) % n;
                     targets.push(refs[idx].clone());
                 }
                 // Keep original refs alive as well to avoid removal; drop after timing
@@ -167,10 +155,9 @@ fn bench_handle_access_increment(c: &mut Criterion) {
 fn bench_iter_and_iter_mut(c: &mut Criterion) {
     c.bench_function("rc::iter_all_100k", |b| {
         let mut m = RcHashMap::new();
-        let _held: Vec<_> = lcg(999)
-            .take(100_000)
-            .enumerate()
-            .map(|(i, x)| m.insert(key(x), i as u64).unwrap())
+        let mut rng = Pcg::seed_from_u64(999);
+        let _held: Vec<_> = (0..100_000)
+            .map(|i| m.insert(key(rng.next_u64()), i as u64).unwrap())
             .collect();
         b.iter(|| {
             let mut cnt = 0usize;
@@ -185,10 +172,9 @@ fn bench_iter_and_iter_mut(c: &mut Criterion) {
         b.iter_batched(
             || {
                 let mut m: RcHashMap<String, u64> = RcHashMap::new();
-                let _held: Vec<_> = lcg(1001)
-                    .take(100_000)
-                    .enumerate()
-                    .map(|(i, x)| m.insert(key(x), i as u64).unwrap())
+                let mut rng = Pcg::seed_from_u64(1001);
+                let _held: Vec<_> = (0..100_000)
+                    .map(|i| m.insert(key(rng.next_u64()), i as u64).unwrap())
                     .collect();
                 m
             },
