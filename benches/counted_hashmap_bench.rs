@@ -66,26 +66,17 @@ fn bench_remove(c: &mut Criterion) {
             || {
                 let mut m = CountedHashMap::new();
                 let mut rng = Pcg::seed_from_u64(5);
-                let all: Vec<_> = (0..110_000)
+                let mut handles = (0..110_000)
                     .map(|i| m.insert(key(rng.next_u64()), i as u64).unwrap())
-                    .collect();
+                    .collect::<Vec<_>>();
                 // Precompute 10k unique indices via PCG
-                let n = all.len();
-                let mut sel = HashSet::with_capacity(10_000);
                 let mut idx_rng = Pcg::seed_from_u64(0x9e3779b97f4a7c15);
-                while sel.len() < 10_000 {
-                    sel.insert((idx_rng.next_u64() as usize) % n);
-                }
                 let mut to_remove = Vec::with_capacity(10_000);
-                let mut remain = Vec::with_capacity(n - 10_000);
-                for (i, h) in all.into_iter().enumerate() {
-                    if sel.contains(&i) {
-                        to_remove.push(h);
-                    } else {
-                        remain.push(h);
-                    }
+                while to_remove.len() < 10_000 {
+                    let idx = (idx_rng.next_u64() as usize) % handles.len();
+                    to_remove.push(handles.swap_remove(idx));
                 }
-                (m, to_remove, remain)
+                (m, to_remove, handles)
             },
             |(mut m, to_remove, remain)| {
                 for h in to_remove {
