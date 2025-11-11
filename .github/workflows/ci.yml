@@ -88,6 +88,20 @@ jobs:
           - { name: 'RcHashMap', bench: 'rc_hashmap_bench', flags: '' }
           - { name: 'RcHashMap (random-state-hash)', bench: 'rc_hashmap_bench', flags: '--no-default-features --features random-state-hash' }
           - { name: 'RcHashMap (xxh3-hash)', bench: 'rc_hashmap_bench', flags: '--no-default-features --features xxh3-hash' }
+        exclude:
+          # Access benchmarks are not hash-dependent; skip for alt hash configs
+          - row: { name: 'access random increment', filter: 'access/random_increment_100k$' }
+            ds: { name: 'RcHashMap (random-state-hash)', bench: 'rc_hashmap_bench', flags: '--no-default-features --features random-state-hash' }
+          - row: { name: 'access iter all', filter: 'access/iter_all_100k$' }
+            ds: { name: 'RcHashMap (random-state-hash)', bench: 'rc_hashmap_bench', flags: '--no-default-features --features random-state-hash' }
+          - row: { name: 'access iter_mut increment all', filter: 'access/iter_mut_increment_all_100k$' }
+            ds: { name: 'RcHashMap (random-state-hash)', bench: 'rc_hashmap_bench', flags: '--no-default-features --features random-state-hash' }
+          - row: { name: 'access random increment', filter: 'access/random_increment_100k$' }
+            ds: { name: 'RcHashMap (xxh3-hash)', bench: 'rc_hashmap_bench', flags: '--no-default-features --features xxh3-hash' }
+          - row: { name: 'access iter all', filter: 'access/iter_all_100k$' }
+            ds: { name: 'RcHashMap (xxh3-hash)', bench: 'rc_hashmap_bench', flags: '--no-default-features --features xxh3-hash' }
+          - row: { name: 'access iter_mut increment all', filter: 'access/iter_mut_increment_all_100k$' }
+            ds: { name: 'RcHashMap (xxh3-hash)', bench: 'rc_hashmap_bench', flags: '--no-default-features --features xxh3-hash' }
     steps:
       - name: Checkout
         uses: actions/checkout@v4
