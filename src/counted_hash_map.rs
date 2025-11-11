@@ -1,6 +1,7 @@
 //! CountedHashMap: per-entry reference counting atop HandleHashMap using tokens.
 
 use crate::handle_hash_map::{Handle, HandleHashMap, InsertError};
+use crate::hash::DefaultHashBuilder;
 use crate::tokens::{Count, Token, UsizeCount};
 
 #[derive(Debug)]
@@ -18,7 +19,7 @@ impl<V> Counted<V> {
     }
 }
 
-pub struct CountedHashMap<K, V, S = std::collections::hash_map::RandomState> {
+pub struct CountedHashMap<K, V, S = DefaultHashBuilder> {
     pub(crate) inner: HandleHashMap<K, Counted<V>, S>,
 }
 

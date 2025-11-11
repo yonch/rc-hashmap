@@ -9,6 +9,16 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default (wyhash)
+            flags: ""
+          - name: random-state-hash
+            flags: "--no-default-features --features random-state-hash"
+          - name: xxh3-hash
+            flags: "--no-default-features --features xxh3-hash"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,12 +30,14 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-${{ matrix.name }}
 
-      - name: Tests
-        run: cargo test --all-features --verbose
+      - name: Tests (${{ matrix.name }})
+        run: cargo test ${{ matrix.flags }} --verbose
 
-      - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Clippy (${{ matrix.name }})
+        run: cargo clippy --all-targets ${{ matrix.flags }} -- -D warnings
 
   benches-compile:
     name: Benches - compile
@@ -93,6 +105,14 @@ jobs:
           fn="bench-${{ matrix.name }}.jsonl"
           # Run across all bench targets and filter specific case across DS variants
           cargo criterion --message-format=json -- ${{ matrix.filter }} > "$fn"
+
+          # Also run RcHashMap with alternate hash features and append.
+          # Benchmark ids include rc::{HASH_NAME}::..., so no JSON rewriting is needed.
+          cargo criterion --no-default-features --features random-state-hash \
+            --bench rc_hashmap_bench --message-format=json -- ${{ matrix.filter }} >> "$fn"
+
+          cargo criterion --no-default-features --features xxh3-hash \
+            --bench rc_hashmap_bench --message-format=json -- ${{ matrix.filter }} >> "$fn"
           ls -l "$fn"
 
       - name: Upload JSONL artifact

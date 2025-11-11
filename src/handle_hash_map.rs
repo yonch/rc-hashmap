@@ -1,11 +1,11 @@
 //! HandleHashMap: structural layer with stable handles and debug reentrancy guard.
 
+use crate::hash::DefaultHashBuilder;
 use crate::reentrancy::DebugReentrancy;
 use core::borrow::Borrow;
 use core::hash::{BuildHasher, Hash};
 use hashbrown::HashTable;
 use slotmap::{DefaultKey, SlotMap};
-use std::collections::hash_map::RandomState;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Handle(DefaultKey);
@@ -50,7 +50,7 @@ struct Entry<K, V> {
     hash: u64,
 }
 
-pub struct HandleHashMap<K, V, S = RandomState> {
+pub struct HandleHashMap<K, V, S = DefaultHashBuilder> {
     hasher: S,
     index: HashTable<DefaultKey>,
     slots: SlotMap<DefaultKey, Entry<K, V>>, // storage using generational keys

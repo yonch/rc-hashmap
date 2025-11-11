@@ -70,10 +70,12 @@
 pub mod counted_hash_map;
 pub mod handle_hash_map;
 mod handle_hash_map_proptest;
+pub mod hash;
 mod rc_hash_map;
 mod reentrancy;
 pub mod tokens;
 
 // Public surface
 pub use handle_hash_map::InsertError;
+pub use hash::DefaultHashBuilder;
 pub use rc_hash_map::{RcHashMap, Ref};

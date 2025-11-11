@@ -11,7 +11,13 @@ DS_NAME_MAP = {
     'rc': 'RcHashMap',
 }
 
-COL_ORDER = ['HandleHashMap', 'CountedHashMap', 'RcHashMap']
+COL_ORDER = [
+    'HandleHashMap',
+    'CountedHashMap',
+    'RcHashMap',
+    'RcHashMap (random-state-hash)',
+    'RcHashMap (xxh3-hash)',
+]
 
 
 def time_to_seconds(value, unit):
@@ -43,13 +49,23 @@ def case_label(category, case):
 
 
 def parse_id(bench_id):
-    # Expect format: <ds>::<category>/<case>
+    # Expected formats:
+    #  - <ds>::<category>/<case>
+    #  - rc::<hashname>::<category>/<case>
     try:
         ds_and_cat, case = bench_id.split('/')
-        ds_prefix, category = ds_and_cat.split('::')
+        parts = ds_and_cat.split('::')
     except ValueError:
         return None
-    return ds_prefix, category, case
+    if len(parts) == 2:
+        ds_prefix, category = parts
+        return ds_prefix, None, category, case
+    if len(parts) >= 3 and parts[0] == 'rc':
+        ds_prefix = parts[0]
+        hashname = parts[1]
+        category = parts[2]
+        return ds_prefix, hashname, category, case
+    return None
 
 
 def load_results(path):
@@ -71,10 +87,20 @@ def load_results(path):
             parsed = parse_id(bench_id) if bench_id else None
             if not parsed:
                 continue
-            ds_prefix, category, case = parsed
-            ds_name = DS_NAME_MAP.get(ds_prefix)
-            if not ds_name:
-                continue
+            ds_prefix, hashname, category, case = parsed
+            if ds_prefix == 'rc' and hashname:
+                if hashname == 'wyhash-hash':
+                    ds_name = 'RcHashMap'
+                elif hashname == 'random-state-hash':
+                    ds_name = 'RcHashMap (random-state-hash)'
+                elif hashname == 'xxh3-hash':
+                    ds_name = 'RcHashMap (xxh3-hash)'
+                else:
+                    ds_name = f'RcHashMap ({hashname})'
+            else:
+                ds_name = DS_NAME_MAP.get(ds_prefix)
+                if not ds_name:
+                    continue
 
             typical = msg.get('typical') or {}
             typical_est = typical.get('estimate')
@@ -151,4 +177,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

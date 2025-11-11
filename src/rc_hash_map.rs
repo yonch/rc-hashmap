@@ -2,6 +2,7 @@ use crate::tokens::{Count, RcCount, Token};
 // Keepalive handled via direct Rc strong-count inc/dec per entry.
 use crate::counted_hash_map::{CountedHandle, CountedHashMap, PutResult};
 use crate::handle_hash_map::InsertError;
+use crate::hash::DefaultHashBuilder;
 use core::cell::UnsafeCell;
 use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
@@ -22,7 +23,7 @@ struct Inner<K, V, S> {
     keepalive: RcCount<Inner<K, V, S>>,
 }
 
-pub struct RcHashMap<K, V, S = std::collections::hash_map::RandomState> {
+pub struct RcHashMap<K, V, S = DefaultHashBuilder> {
     inner: Rc<Inner<K, V, S>>,
 }
 
@@ -136,7 +137,7 @@ where
 
 /// A reference to an entry inside RcHashMap. Clone increments per-entry count;
 /// dropping decrements and removes the entry when it reaches zero.
-pub struct Ref<K, V, S = std::collections::hash_map::RandomState>
+pub struct Ref<K, V, S = DefaultHashBuilder>
 where
     K: Eq + core::hash::Hash + 'static,
     V: 'static,
@@ -274,7 +275,7 @@ where
     }
 }
 /// Placeholder for future mutable iterator item (see design docs).
-pub struct ItemMut<'a, K, V, S = std::collections::hash_map::RandomState>
+pub struct ItemMut<'a, K, V, S = DefaultHashBuilder>
 where
     K: Eq + core::hash::Hash + 'static,
     V: 'static,
@@ -302,7 +303,7 @@ where
 }
 
 /// Immutable iterator for RcHashMap yielding `Ref`.
-pub struct Iter<'a, K, V, S = std::collections::hash_map::RandomState>
+pub struct Iter<'a, K, V, S = DefaultHashBuilder>
 where
     K: Eq + core::hash::Hash + 'static,
     V: 'static,
@@ -327,7 +328,7 @@ where
 }
 
 /// Mutable iterator for RcHashMap yielding ItemMut.
-pub struct IterMut<'a, K, V, S = std::collections::hash_map::RandomState>
+pub struct IterMut<'a, K, V, S = DefaultHashBuilder>
 where
     K: Eq + core::hash::Hash + 'static,
     V: 'static,

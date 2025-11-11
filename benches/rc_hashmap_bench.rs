@@ -1,6 +1,7 @@
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
 use rand_core::{RngCore, SeedableRng};
 use rand_pcg::Lcg128Xsl64 as Pcg;
+use rc_hashmap::hash::HASH_NAME;
 use rc_hashmap::RcHashMap;
 use std::hint::black_box;
 
@@ -9,7 +10,7 @@ fn key(n: u64) -> String {
 }
 
 fn bench_insert(c: &mut Criterion) {
-    let mut group = c.benchmark_group("rc::insert");
+    let mut group = c.benchmark_group(format!("rc::{}::insert", HASH_NAME));
     group.throughput(Throughput::Elements(100_000));
     // fresh_100k
     group.bench_function("fresh_100k", |b| {
@@ -53,7 +54,7 @@ fn bench_insert(c: &mut Criterion) {
 }
 
 fn bench_remove(c: &mut Criterion) {
-    let mut group = c.benchmark_group("rc::remove");
+    let mut group = c.benchmark_group(format!("rc::{}::remove", HASH_NAME));
     group.throughput(Throughput::Elements(10_000));
     group.bench_function("random_10k_of_110k", |b| {
         b.iter_batched(
@@ -86,7 +87,7 @@ fn bench_remove(c: &mut Criterion) {
 }
 
 fn bench_query(c: &mut Criterion) {
-    let mut group = c.benchmark_group("rc::query");
+    let mut group = c.benchmark_group(format!("rc::{}::query", HASH_NAME));
     group.throughput(Throughput::Elements(10_000));
     // hit 10k
     group.bench_function("hit_10k_on_100k", |b| {
@@ -131,7 +132,7 @@ fn bench_query(c: &mut Criterion) {
 }
 
 fn bench_access(c: &mut Criterion) {
-    let mut group = c.benchmark_group("rc::access");
+    let mut group = c.benchmark_group(format!("rc::{}::access", HASH_NAME));
     group.throughput(Throughput::Elements(100_000));
     // random access increment 10k
     group.bench_function("random_increment_100k", |b| {
