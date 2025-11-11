@@ -57,33 +57,37 @@ jobs:
       - name: Install cargo-criterion (prime cache)
         run: cargo install cargo-criterion --debug
 
-      - name: Compile benches only
+      - name: Compile benches (default features)
         run: cargo bench --no-run --benches --verbose
 
+      - name: Compile rc bench (random-state-hash)
+        run: cargo bench --no-run --bench rc_hashmap_bench --no-default-features --features random-state-hash --verbose
+
+      - name: Compile rc bench (xxh3-hash)
+        run: cargo bench --no-run --bench rc_hashmap_bench --no-default-features --features xxh3-hash --verbose
+
   benches-run:
-    name: Benches - run (${{ matrix.name }})
+    name: Benches - run (${{ matrix.row.name }} / ${{ matrix.ds.name }})
     runs-on: ubuntu-latest
     needs: benches-compile
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: insert fresh
-            filter: 'insert/fresh_100k$'
-          - name: insert warm
-            filter: 'insert/warm_100k$'
-          - name: remove random
-            filter: 'remove/random_10k_of_110k$'
-          - name: query hit
-            filter: 'query/hit_10k_on_100k$'
-          - name: query miss
-            filter: 'query/miss_10k_on_100k$'
-          - name: access random increment
-            filter: 'access/random_increment_100k$'
-          - name: access iter all
-            filter: 'access/iter_all_100k$'
-          - name: access iter_mut increment all
-            filter: 'access/iter_mut_increment_all_100k$'
+        row:
+          - { name: 'insert fresh', filter: 'insert/fresh_100k$' }
+          - { name: 'insert warm', filter: 'insert/warm_100k$' }
+          - { name: 'remove random', filter: 'remove/random_10k_of_110k$' }
+          - { name: 'query hit', filter: 'query/hit_10k_on_100k$' }
+          - { name: 'query miss', filter: 'query/miss_10k_on_100k$' }
+          - { name: 'access random increment', filter: 'access/random_increment_100k$' }
+          - { name: 'access iter all', filter: 'access/iter_all_100k$' }
+          - { name: 'access iter_mut increment all', filter: 'access/iter_mut_increment_all_100k$' }
+        ds:
+          - { name: 'HandleHashMap', bench: 'handle_hashmap_bench', flags: '' }
+          - { name: 'CountedHashMap', bench: 'counted_hashmap_bench', flags: '' }
+          - { name: 'RcHashMap', bench: 'rc_hashmap_bench', flags: '' }
+          - { name: 'RcHashMap (random-state-hash)', bench: 'rc_hashmap_bench', flags: '--no-default-features --features random-state-hash' }
+          - { name: 'RcHashMap (xxh3-hash)', bench: 'rc_hashmap_bench', flags: '--no-default-features --features xxh3-hash' }
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -99,27 +103,19 @@ jobs:
       - name: Install cargo-criterion
         run: cargo install cargo-criterion --debug
 
-      - name: Run criterion matrix case
+      - name: Run criterion matrix cell
         run: |
           set -euo pipefail
-          fn="bench-${{ matrix.name }}.jsonl"
-          # Run across all bench targets and filter specific case across DS variants
-          cargo criterion --message-format=json -- ${{ matrix.filter }} > "$fn"
-
-          # Also run RcHashMap with alternate hash features and append.
-          # Benchmark ids include rc::{HASH_NAME}::..., so no JSON rewriting is needed.
-          cargo criterion --no-default-features --features random-state-hash \
-            --bench rc_hashmap_bench --message-format=json -- ${{ matrix.filter }} >> "$fn"
-
-          cargo criterion --no-default-features --features xxh3-hash \
-            --bench rc_hashmap_bench --message-format=json -- ${{ matrix.filter }} >> "$fn"
+          fn="bench-${{ matrix.row.name }}-${{ matrix.ds.name }}.jsonl"
+          cargo criterion ${{ matrix.ds.flags }} --bench ${{ matrix.ds.bench }} \
+            --message-format=json -- ${{ matrix.row.filter }} > "$fn"
           ls -l "$fn"
 
       - name: Upload JSONL artifact
         uses: actions/upload-artifact@v4
         with:
-          name: bench-json-${{ matrix.name }}
-          path: bench-${{ matrix.name }}.jsonl
+          name: bench-json-${{ matrix.row.name }}-${{ matrix.ds.name }}
+          path: bench-${{ matrix.row.name }}-${{ matrix.ds.name }}.jsonl
 
   benches-aggregate:
     name: Benches - aggregate and summarize
